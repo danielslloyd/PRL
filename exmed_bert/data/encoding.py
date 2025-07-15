@@ -76,28 +76,26 @@ def rxcui_to_atc4(
         List[str]: mapped atc codes
     """
 
-    def _map_to_atc(rxcode: Union[str, int], mapping: Dict[str, str]) -> str:
+    def _map_to_atc(rxcode: Union[str, int], mapping: Dict[str, str]) -> List[str]:
         """Helper function to map rxnorm codes to atc"""
         if isinstance(rxcode, str) and rxcode in DICT_DEFAULTS:
-            return rxcode
-        elif isinstance(rxcode, str):
-            rxcode = int(rxcode)
-
-        code = mapping.get(rxcode, "UNK")  # type: ignore
+            return [rxcode]
+        rxcode_str = str(rxcode)
+        code = mapping.get(rxcode_str, "UNK")  # always use string keys
         if code == "UNK":
             # noinspection PyBroadException
             try:
                 global UNKNOWN_RX
-                UNKNOWN_RX.add(rxcode)  # type: ignore
+                UNKNOWN_RX.add(rxcode_str)  # type: ignore
             except:
                 logger.info("Could not add code to unknowns")
+        return [code]
 
-        return code
-
-    if isinstance(rxcui, Iterable):
+    # Only treat as iterable if it's a list or tuple, not a string
+    if isinstance(rxcui, (list, tuple)):
         atc_codes = [code for rx in rxcui for code in _map_to_atc(rx, rx_to_atc_map)]
     elif isinstance(rxcui, str) or isinstance(rxcui, int):
-        atc_codes = [code for code in _map_to_atc(rxcui, rx_to_atc_map)]
+        atc_codes = _map_to_atc(rxcui, rx_to_atc_map)
     else:
         raise MappingError("Error in rx to atc conversion")
     return atc_codes
@@ -280,7 +278,7 @@ class EmbedDict(object):
         return cls(labels)
 
     def encode(
-        self, keys: Union[str, List[str]], return_entities: bool = False
+        self, keys: Union[str, int, List[str], List[int]], return_entities: bool = False
     ) -> Union[List[int], Tuple[List[int], List[str]]]:
         """
         Args:
@@ -303,13 +301,13 @@ class EmbedDict(object):
             keys = list(keys)
         elif not isinstance(keys, list):
             keys = [keys]
+        # Convert all keys to str (handles both str and int)
+        keys = [str(key) for key in keys]
 
         tokens = []
         for key in keys:
             if key in self.vocab:
                 tokens.append(key)
-            elif str(key) in self.vocab:
-                tokens.append(str(key))
             else:
                 tokens.append("UNK")
 
@@ -341,9 +339,7 @@ class EmbedDict(object):
             int_reps = int_reps.cpu().detach().numpy()
 
         if return_entities:
-            return list(map(self.ids_to_label.get, int_reps)), [  # type: ignore
-                self.entities[i] for i in int_reps
-            ]
+            return list(map(self.ids_to_label.get, int_reps)), [str(self.entities[i]) if i is not None else "UNK" for i in int_reps]
         else:
             return list(map(self.ids_to_label.get, int_reps))  # type: ignore
 
