@@ -881,7 +881,7 @@ class Patient(object):
         use_sep=False,
         age_usage="months",
         start: date = date(2010, 1, 1),
-        end: date = date(2020, 12, 31),
+        end: date = date(2025, 12, 31),
         delete_temporary_variables: bool = True,
         mask_drugs: bool = True,
         num_endpoints: Optional[int] = None,
@@ -900,7 +900,7 @@ class Patient(object):
             use_sep (bool, optional): Indicate whether the sep token should be used. Defaults to False.
             age_usage (str, optional): Indicate whether age should be used. Defaults to "months".
             start (date, optional): Start date of medical history. Defaults to date(2010, 1, 1).
-            end (date, optional): End date of medical history. Defaults to date(2020, 12, 31).
+            end (date, optional): End date of medical history. Defaults to date(2025, 12, 31).
             delete_temporary_variables (bool, optional): Only set to false for debugging. Defaults to True.
             mask_drugs (bool, optional): Indicate whether drugs should be masked. Defaults to True.
             num_endpoints (Optional[int], optional): Specify the number of endpoints. Defaults to None.
@@ -969,13 +969,13 @@ class Patient(object):
 
     @staticmethod
     def generate_time_series(
-        start=date(2010, 1, 1), end=date(2020, 12, 31), length=512
+        start=date(2010, 1, 1), end=date(2025, 12, 31), length=512
     ) -> List[date]:
         """Helper to generate a demo patient's time series
 
         Args:
             start (_type_, optional): Start of time series. Defaults to date(2010, 1, 1).
-            end (_type_, optional): End of time series. Defaults to date(2020, 12, 31).
+            end (_type_, optional): End of time series. Defaults to date(2025, 12, 31).
             length (int, optional): Length of sequence. Defaults to 512.
 
         Returns:
