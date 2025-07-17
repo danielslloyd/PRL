@@ -37,6 +37,7 @@ dependencies:
   - mypy=0.990
   - ipython=8.6.0
   - colorama=0.4.6
+  - ipywidgets=8.1.7
   - six
   - jinja2>=2.10.3
   # Additional pip packages
