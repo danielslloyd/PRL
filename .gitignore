@@ -162,3 +162,7 @@ benchmarking/
 run-*/
 .snakemake/
 
+pretrain_stuff/
+output/
+mlruns/
+
