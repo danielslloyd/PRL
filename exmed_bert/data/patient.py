@@ -683,7 +683,7 @@ class Patient(object):
 
     def get_patient_data(
         self,
-        evaluate: bool = False,
+        evaluate: bool = True,
         endpoint_index: Optional[torch.Tensor] = None,
         code_embed: Optional[CodeDict] = None,
         mask_dynamically: bool = False,
@@ -726,9 +726,9 @@ class Patient(object):
         elif evaluate:
             # Pretraining scenario --> mlm labels required
             if self.had_plos is not None:
-                patient_data["plos_label"] = (
-                    torch.LongTensor(1) if self.had_plos else torch.LongTensor(0)
-                )
+                patient_data["plos_label"] = torch.LongTensor([1]) if self.had_plos else torch.LongTensor([0])
+            else:
+                patient_data["plos_label"] = torch.LongTensor([0])  # or another default value
 
             if mask_dynamically:
                 logger.debug("Mask input dynamically")
