@@ -525,7 +525,7 @@ class ExMedBertForMaskedLM(ExMedBertModel):
             plos_logprobs, plos_logits = self.plos_classifier(last_hidden)
             output_dict["plos_logits"] = plos_logits
 
-            if plos_label is not None:
+            if plos_label is not None and code_labels is None:
                 if plos_label.device != input_ids.device:
                     plos_label = plos_label.to(input_ids.device)
 
