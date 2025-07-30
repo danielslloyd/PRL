@@ -1,6 +1,3 @@
-
-
-
 import subprocess
 import sys
 import os
@@ -15,7 +12,7 @@ def run_pretraining():
     validation_data = "pretrain_stuff/demo_val_patient_dataset.pt"
     output_dir = "output/pretrain"
     output_data_dir = "output/pretrain_data"
-    epochs = "5"  # Change as needed
+    epochs = "20"  # Change as needed
 
     # Build the command
     cmd = [
