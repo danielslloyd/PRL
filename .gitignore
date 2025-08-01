@@ -33,10 +33,6 @@ MANIFEST
 *.manifest
 *.spec
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
 # Unit test / coverage reports
 htmlcov/
 .tox/
@@ -144,7 +140,6 @@ node_modules/
 *.pt
 *.log
 *.log.*
-*.txt
 *.pyc
 
 commitlint.config.js

@@ -1,0 +1,84 @@
+# IMPORTANT !!!
+# MAKE SURE """MAX_LENGTH (max_seq_length)""" AND """DYNAMIC_MASKING""" ARE THE SAME IN THE DATA PREPARATION AND TRAINING CONFIG!
+
+# Master Variables for data preperation in explain.ipynb
+data_prep_params_example:
+  max_length: 50
+  mask_drugs: true
+  delete_temporary_variables: true
+  split_sequence: true
+  drop_duplicates: true
+  converted_codes: false
+  convert_icd_to_phewas: true
+  convert_rxcui_to_atc: true
+  min_unmasked: 1
+  max_masked: 20
+  masked_lm_prob: 0.15
+  truncate: 'right'
+  dynamic_masking: true
+  min_observations: 5
+  age_usage: 'year'
+  use_cls: true
+  use_sep: false
+  valid_patient: true
+
+# ExMed-BERT Test Parameters
+training_params_example:
+  training_data: "pretrain_stuff/demo_train_patient_dataset.pt"
+  validation_data: "pretrain_stuff/demo_val_patient_dataset.pt"
+  output_dir: "output/pretrain"
+  output_data_dir: "output/pretrain_data"
+  train_batch_size: 2
+  eval_batch_size: 2
+  num_attention_heads: 2
+  num_hidden_layers: 2
+  hidden_size: 64
+  intermediate_size: 128
+  epochs: 20
+  max_steps: -1
+  learning_rate: 1e-4
+  gradient_accumulation_steps: 1
+  max_seq_length: 50
+  seed: 201214
+  num_workers: 0
+  logging_steps: 5
+  eval_steps: 10
+  save_steps: 10
+  warmup_steps: 0
+  initialization: "orthogonal"
+  dynamic_masking: true
+  plos: true
+
+###############################################################
+###############################################################
+###############################################################
+
+# Original ExMed-Bert Parameters
+training_params_original:
+  training_data: 'Path'
+  validation_data: 'Path'
+  output_dir: 'Path'
+  output_data_dir: 'Path'
+  model_dir: 'Optional[Path] = None'
+  train_batch_size: 256
+  eval_batch_size: 256
+  num_attention_heads: 6
+  num_hidden_layers: 6
+  hidden_size: 288
+  intermediate_size: 512
+  epochs: 'Optional[int] = None'
+  max_steps: -1
+  learning_rate: 3e-5 #type: float
+  gradient_accumulation_steps: -1
+  max_seq_length: 512
+  seed: 201214
+  num_workers: 0
+  logging_steps: 100
+  eval_steps: 1000
+  save_steps: 1000
+  warmup_steps: 10000
+  warmup_ratio: 'Optional[float] = None'
+  initialization: "orthogonal"
+  dynamic_masking: true
+  max_masked: 'Optional[int] = None'
+  plos: true

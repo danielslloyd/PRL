@@ -1,28 +1,55 @@
 import subprocess
 import sys
 import os
+import yaml
+
+def load_config(config_path="config.yaml"):
+    """Load configuration from YAML file."""
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
 
 def run_pretraining():
     """
     Run the ExMed-BERT pretraining script from within pretrain.py.
-    Adjust the paths and parameters as needed for your setup.
+    Parameters are loaded from config.yaml.
     """
-    # Set your paths here
-    training_data = "pretrain_stuff/demo_train_patient_dataset.pt"
-    validation_data = "pretrain_stuff/demo_val_patient_dataset.pt"
-    output_dir = "output/pretrain"
-    output_data_dir = "output/pretrain_data"
-    epochs = "20"  # Change as needed
-
-    # Build the command
+    # Load configuration
+    config = load_config()
+    params = config['training_params_example']
+    
+    # Build the command with all parameters from config
     cmd = [
         sys.executable, "scripts/pretrain-exmed-bert.py",
-        training_data,
-        validation_data,
-        output_dir,
-        output_data_dir,
-        "--epochs", epochs
+        params['training_data'],
+        params['validation_data'],
+        params['output_dir'],
+        params['output_data_dir'],
+        "--train-batch-size", str(params['train_batch_size']),
+        "--eval-batch-size", str(params['eval_batch_size']),
+        "--num-attention-heads", str(params['num_attention_heads']),
+        "--num-hidden-layers", str(params['num_hidden_layers']),
+        "--hidden-size", str(params['hidden_size']),
+        "--intermediate-size", str(params['intermediate_size']),
+        "--epochs", str(params['epochs']),
+        "--max-steps", str(params['max_steps']),
+        "--learning-rate", str(params['learning_rate']),
+        "--gradient-accumulation-steps", str(params['gradient_accumulation_steps']),
+        "--max-seq-length", str(params['max_seq_length']),
+        "--seed", str(params['seed']),
+        "--num-workers", str(params['num_workers']),
+        "--logging-steps", str(params['logging_steps']),
+        "--eval-steps", str(params['eval_steps']),
+        "--save-steps", str(params['save_steps']),
+        "--warmup-steps", str(params['warmup_steps']),
+        "--initialization", params['initialization']
     ]
+    
+    # Add boolean flags
+    if params['dynamic_masking']:
+        cmd.append("--dynamic-masking")
+    if params['plos']:
+        cmd.append("--plos")
 
     # Set PYTHONPATH to current directory so exmed_bert is found
     env = dict(os.environ)

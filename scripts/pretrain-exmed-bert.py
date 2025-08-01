@@ -43,7 +43,7 @@ def pretrain(
     warmup_steps: int = 10_000,
     warmup_ratio: Optional[float] = None,
     initialization: str = "orthogonal",
-    dynamic_masking: bool = False,
+    dynamic_masking: bool = True,
     max_masked: Optional[int] = None,
     plos: bool = True,
 ):
