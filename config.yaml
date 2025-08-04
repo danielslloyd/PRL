@@ -34,7 +34,7 @@ training_params_example:
   num_hidden_layers: 2
   hidden_size: 64
   intermediate_size: 128
-  epochs: 20
+  epochs: 40
   max_steps: -1
   learning_rate: 1e-4
   gradient_accumulation_steps: 1
@@ -47,7 +47,7 @@ training_params_example:
   warmup_steps: 0
   initialization: "orthogonal"
   dynamic_masking: true
-  plos: true
+  plos: false
 
 ###############################################################
 ###############################################################

@@ -329,7 +329,7 @@ class Patient(object):
             time_points.extend([time_point] * len(codes_at_time))
 
         return codes, time_points
-
+    
     def prepare_patient(
         self,
         max_length: int,
@@ -556,6 +556,7 @@ class Patient(object):
             embed=code_embed,
             return_entities=True,
         )
+
         if self.endpoint_labels is None and not dynamic_masking:
             input_ids, code_labels = self.mask_code_ids(
                 code_ids=self.code_tokens
