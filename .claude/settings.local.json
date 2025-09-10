@@ -3,7 +3,8 @@
     "allow": [
       "WebFetch(domain:dataverse.harvard.edu)",
       "WebSearch",
-      "Read(//c/Users/U064928/UCB/I2I BAI Advanced Analytics - nPVU/PRL/ClinVec/**)"
+      "Read(//c/Users/U064928/UCB/I2I BAI Advanced Analytics - nPVU/PRL/ClinVec/**)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,488 @@
+"""
+ClinVec Integration for ExMed-BERT
+Integrates pre-trained ClinVec embeddings with ExMed-BERT model
+"""
+
+import logging
+import pandas as pd
+import torch
+import numpy as np
+from typing import Dict, Optional, Tuple, List, Set
+from pathlib import Path
+import re
+
+logger = logging.getLogger(__name__)
+
+
+class ClinVecLoader:
+    """Load and integrate ClinVec embeddings with ExMed-BERT"""
+    
+    def __init__(self, clinvec_dir: str):
+        """
+        Initialize ClinVec loader
+        
+        Args:
+            clinvec_dir: Path to directory containing ClinVec files
+        """
+        self.clinvec_dir = Path(clinvec_dir)
+        self.node_mapping = None
+        self.embeddings_cache = {}
+        
+    def load_node_mapping(self) -> pd.DataFrame:
+        """Load node mapping from ClinGraph_nodes.csv"""
+        if self.node_mapping is None:
+            nodes_path = self.clinvec_dir / "ClinGraph_nodes.csv"
+            self.node_mapping = pd.read_csv(nodes_path, sep='\t')
+            logger.info(f"Loaded {len(self.node_mapping)} node mappings")
+        return self.node_mapping
+    
+    def load_embeddings_by_vocab(self, vocab_type: str) -> Dict[str, torch.Tensor]:
+        """
+        Load embeddings for a specific vocabulary type
+        
+        Args:
+            vocab_type: Type of vocabulary (icd9cm, icd10cm, phecode, atc, rxnorm, etc.)
+            
+        Returns:
+            Dictionary mapping original codes to embedding tensors
+        """
+        vocab_key = vocab_type.lower()
+        
+        if vocab_key in self.embeddings_cache:
+            return self.embeddings_cache[vocab_key]
+        
+        # Load embeddings file
+        emb_file = self.clinvec_dir / f"ClinVec_{vocab_key}.csv"
+        if not emb_file.exists():
+            logger.warning(f"Embeddings file not found: {emb_file}")
+            return {}
+        
+        emb_df = pd.read_csv(emb_file, index_col=0)
+        logger.info(f"Loaded {len(emb_df)} {vocab_type} embeddings, dim={emb_df.shape[1]}")
+        
+        # Load node mapping
+        nodes_df = self.load_node_mapping()
+        
+        # Merge embeddings with node info
+        emb_df['node_index'] = emb_df.index
+        merged_df = emb_df.merge(nodes_df, on='node_index', how='inner')
+        
+        # Filter by vocabulary type
+        vocab_filtered = merged_df[merged_df['ntype'].str.upper() == vocab_type.upper()]
+        
+        # Extract original codes and convert to tensors
+        embeddings_dict = {}
+        for _, row in vocab_filtered.iterrows():
+            # Extract original code from node_id (format: "code:vocab")
+            original_code = row['node_id'].split(':')[0]
+            
+            # Get embedding values (exclude metadata columns)
+            emb_values = row.drop(['node_index', 'node_id', 'node_name', 'ntype']).values
+            embeddings_dict[original_code] = torch.tensor(emb_values, dtype=torch.float32)
+        
+        self.embeddings_cache[vocab_key] = embeddings_dict
+        logger.info(f"Created embeddings dict with {len(embeddings_dict)} {vocab_type} codes")
+        
+        return embeddings_dict
+    
+    def resize_embeddings(self, embeddings: Dict[str, torch.Tensor], target_dim: int) -> Dict[str, torch.Tensor]:
+        """
+        Resize embeddings to match model dimensions
+        
+        Args:
+            embeddings: Dictionary of embeddings
+            target_dim: Target embedding dimension
+            
+        Returns:
+            Resized embeddings dictionary
+        """
+        if not embeddings:
+            return embeddings
+            
+        sample_emb = next(iter(embeddings.values()))
+        current_dim = sample_emb.shape[0]
+        
+        if current_dim == target_dim:
+            return embeddings
+        
+        logger.info(f"Resizing embeddings from {current_dim} to {target_dim} dimensions")
+        
+        resized = {}
+        for code, emb in embeddings.items():
+            if current_dim > target_dim:
+                # Truncate (use PCA or just take first dimensions)
+                resized[code] = emb[:target_dim]
+            else:
+                # Pad with small random values
+                padding = torch.normal(0, 0.01, size=(target_dim - current_dim,))
+                resized[code] = torch.cat([emb, padding])
+        
+        return resized
+
+
+class HierarchicalCodeMatcher:
+    """Handle hierarchical matching for medical codes"""
+    
+    def __init__(self):
+        self.icd10_pattern = re.compile(r'^[A-Z]\d{2}\.?\d*$')
+        self.icd9_pattern = re.compile(r'^\d{3}\.?\d*$')
+    
+    def is_icd10_code(self, code: str) -> bool:
+        """Check if code follows ICD-10 format"""
+        return bool(self.icd10_pattern.match(code))
+    
+    def is_icd9_code(self, code: str) -> bool:
+        """Check if code follows ICD-9 format"""
+        return bool(self.icd9_pattern.match(code))
+    
+    def get_code_hierarchy(self, code: str) -> List[str]:
+        """
+        Get hierarchical variants of a code, from most specific to most general
+        
+        Example: E11.65 -> ['E11.65', 'E11.6', 'E11']
+        """
+        hierarchy = [code]
+        
+        if self.is_icd10_code(code):
+            hierarchy.extend(self._get_icd10_hierarchy(code))
+        elif self.is_icd9_code(code):
+            hierarchy.extend(self._get_icd9_hierarchy(code))
+        
+        return hierarchy
+    
+    def _get_icd10_hierarchy(self, code: str) -> List[str]:
+        """Generate ICD-10 hierarchy: E11.65 -> E11.6 -> E11"""
+        hierarchy = []
+        
+        # Remove decimal if present
+        clean_code = code.replace('.', '')
+        
+        # E11.65 -> E1165, E116, E11
+        for i in range(len(clean_code) - 1, 2, -1):  # Stop at 3 chars (E11)
+            parent = clean_code[:i]
+            
+            # Add decimal back for 4+ character codes
+            if len(parent) > 3:
+                parent = parent[:3] + '.' + parent[3:]
+            
+            if parent != code and parent not in hierarchy:
+                hierarchy.append(parent)
+        
+        return hierarchy
+    
+    def _get_icd9_hierarchy(self, code: str) -> List[str]:
+        """Generate ICD-9 hierarchy: 250.01 -> 250.0 -> 250"""
+        hierarchy = []
+        
+        # Remove decimal if present  
+        clean_code = code.replace('.', '')
+        
+        # 25001 -> 2500, 250
+        for i in range(len(clean_code) - 1, 2, -1):  # Stop at 3 chars
+            parent = clean_code[:i]
+            
+            # Add decimal back for 4+ character codes
+            if len(parent) > 3:
+                parent = parent[:3] + '.' + parent[3:]
+            
+            if parent != code and parent not in hierarchy:
+                hierarchy.append(parent)
+        
+        return hierarchy
+    
+    def find_best_parent_embedding(
+        self, 
+        novel_code: str, 
+        available_embeddings: Dict[str, torch.Tensor]
+    ) -> Optional[torch.Tensor]:
+        """
+        Find the best parent embedding for a novel code
+        
+        Args:
+            novel_code: The code without an embedding
+            available_embeddings: Dictionary of available embeddings
+            
+        Returns:
+            Parent embedding tensor, or None if no parent found
+        """
+        hierarchy = self.get_code_hierarchy(novel_code)
+        
+        # Try each level of hierarchy from most specific to most general
+        for parent_code in hierarchy[1:]:  # Skip the original code
+            
+            # Try different format variations of parent code
+            parent_variations = [
+                parent_code,
+                parent_code.replace('.', ''),
+                f"ICD_{parent_code}",
+                f"ICD10CM_{parent_code}" if self.is_icd10_code(parent_code) else f"ICD9CM_{parent_code}"
+            ]
+            
+            for variation in parent_variations:
+                if variation in available_embeddings:
+                    logger.info(f"Found parent embedding: {novel_code} -> {variation}")
+                    return available_embeddings[variation]
+        
+        logger.debug(f"No parent embedding found for {novel_code}")
+        return None
+
+
+def integrate_clinvec_with_exmedbert(
+    model, 
+    code_dict, 
+    clinvec_dir: str,
+    vocab_types: List[str] = ["icd9cm", "icd10cm", "phecode"],
+    resize_if_needed: bool = True,
+    use_hierarchical_init: bool = True,
+    verbose: bool = True
+) -> Dict[str, int]:
+    """
+    Integrate ClinVec embeddings with ExMed-BERT model
+    
+    Args:
+        model: ExMed-BERT model instance
+        code_dict: Code dictionary from ExMed-BERT
+        clinvec_dir: Path to ClinVec dataset directory
+        vocab_types: List of vocabulary types to load
+        resize_if_needed: Whether to resize embeddings if dimensions don't match
+        use_hierarchical_init: Whether to use hierarchical initialization for novel codes
+        verbose: Whether to print detailed progress
+        
+    Returns:
+        Dictionary with loading statistics per vocabulary type
+    """
+    loader = ClinVecLoader(clinvec_dir)
+    hierarchical_matcher = HierarchicalCodeMatcher() if use_hierarchical_init else None
+    model_dim = model.config.hidden_size
+    stats = {}
+    
+    logger.info(f"Integrating ClinVec embeddings with ExMed-BERT (model_dim={model_dim})")
+    if use_hierarchical_init:
+        logger.info("Using hierarchical initialization for novel codes")
+    
+    # Collect all available embeddings for hierarchical matching
+    all_available_embeddings = {}
+    
+    for vocab_type in vocab_types:
+        if verbose:
+            print(f"\n=== Loading {vocab_type.upper()} embeddings ===")
+        
+        # Load embeddings for this vocabulary
+        clinvec_embeddings = loader.load_embeddings_by_vocab(vocab_type)
+        
+        if not clinvec_embeddings:
+            stats[vocab_type] = 0
+            continue
+        
+        # Check dimensions and resize if needed
+        sample_emb = next(iter(clinvec_embeddings.values()))
+        clinvec_dim = sample_emb.shape[0]
+        
+        if clinvec_dim != model_dim:
+            if resize_if_needed:
+                if verbose:
+                    print(f"Resizing {vocab_type} embeddings: {clinvec_dim} → {model_dim}")
+                clinvec_embeddings = loader.resize_embeddings(clinvec_embeddings, model_dim)
+            else:
+                logger.warning(f"Dimension mismatch for {vocab_type}: {clinvec_dim} vs {model_dim}")
+                stats[vocab_type] = 0
+                continue
+        
+        # Add to available embeddings for hierarchical matching
+        all_available_embeddings.update(clinvec_embeddings)
+        
+        # Phase 1: Direct matching - load exact matches
+        loaded_count = 0
+        matched_codes = set()
+        
+        with torch.no_grad():
+            for original_code, embedding in clinvec_embeddings.items():
+                # Try different code formats that might exist in ExMed-BERT vocabulary
+                possible_codes = [
+                    original_code,                    # E.g., "250.0"
+                    original_code.replace('.', ''),   # E.g., "2500"
+                    f"ICD_{original_code}",          # E.g., "ICD_250.0"
+                    f"{vocab_type.upper()}_{original_code}",  # E.g., "ICD9CM_250.0"
+                ]
+                
+                # For ICD codes, also try without decimal
+                if '.' in original_code:
+                    possible_codes.extend([
+                        original_code.replace('.', ''),
+                        f"ICD_{original_code.replace('.', '')}"
+                    ])
+                
+                # Check if any variant exists in model vocabulary
+                for code_variant in possible_codes:
+                    if hasattr(code_dict, 'stoi') and code_variant in code_dict.stoi:
+                        vocab_idx = code_dict.stoi[code_variant]
+                        model.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                        loaded_count += 1
+                        matched_codes.add(code_variant)
+                        if verbose and loaded_count <= 5:  # Show first few matches
+                            print(f"  ✓ {original_code} → {code_variant} (idx: {vocab_idx})")
+                        break
+                    elif hasattr(code_dict, '__contains__') and code_variant in code_dict:
+                        # Alternative dictionary interface
+                        vocab_idx = code_dict[code_variant]
+                        model.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                        loaded_count += 1
+                        matched_codes.add(code_variant)
+                        if verbose and loaded_count <= 5:
+                            print(f"  ✓ {original_code} → {code_variant} (idx: {vocab_idx})")
+                        break
+        
+        stats[vocab_type] = loaded_count
+        
+        if verbose:
+            print(f"  Direct matches: {loaded_count}/{len(clinvec_embeddings)} {vocab_type} embeddings")
+            coverage = (loaded_count / len(clinvec_embeddings)) * 100
+            print(f"  Direct coverage: {coverage:.1f}%")
+    
+    # Phase 2: Hierarchical initialization for novel codes
+    if use_hierarchical_init and hierarchical_matcher:
+        hierarchical_count = 0
+        if verbose:
+            print(f"\n=== Hierarchical Initialization ===")
+        
+        with torch.no_grad():
+            # Find novel codes in vocabulary that don't have embeddings
+            if hasattr(code_dict, 'stoi'):
+                for vocab_code, vocab_idx in code_dict.stoi.items():
+                    if vocab_code not in matched_codes:
+                        # Try to find parent embedding
+                        parent_embedding = hierarchical_matcher.find_best_parent_embedding(
+                            vocab_code, all_available_embeddings
+                        )
+                        
+                        if parent_embedding is not None:
+                            # Add small noise to distinguish from parent
+                            noise = torch.normal(0, 0.02, size=parent_embedding.shape)
+                            novel_embedding = parent_embedding + noise
+                            
+                            model.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
+                            hierarchical_count += 1
+                            
+                            if verbose and hierarchical_count <= 10:
+                                print(f"  ◐ {vocab_code} initialized from hierarchy")
+        
+        if verbose:
+            print(f"  Hierarchical initializations: {hierarchical_count}")
+        
+        # Add hierarchical count to stats
+        stats['hierarchical_init'] = hierarchical_count
+    
+    # Mark embeddings as pre-loaded to prevent re-initialization
+    model.embeddings.code_embeddings._clinvec_loaded = True
+    
+    total_loaded = sum(stats.values())
+    if verbose:
+        print(f"\n=== Integration Complete ===")
+        print(f"Total embeddings loaded: {total_loaded}")
+        for vocab, count in stats.items():
+            print(f"  {vocab}: {count}")
+    
+    logger.info(f"ClinVec integration complete: {total_loaded} embeddings loaded")
+    
+    return stats
+
+
+def update_exmedbert_init_weights(model):
+    """
+    Update ExMed-BERT's _init_weights method to preserve ClinVec embeddings
+    Call this AFTER loading ClinVec embeddings
+    """
+    original_init_weights = model._init_weights
+    
+    def _init_weights_with_clinvec_preservation(module):
+        """Modified init_weights that preserves ClinVec embeddings"""
+        if isinstance(module, torch.nn.Embedding):
+            # Skip re-initialization if ClinVec embeddings were loaded
+            if hasattr(module, '_clinvec_loaded'):
+                logger.info("Preserving ClinVec embeddings during weight initialization")
+                return
+        
+        # Call original initialization for other modules
+        original_init_weights(module)
+    
+    # Replace the method
+    model._init_weights = _init_weights_with_clinvec_preservation
+    logger.info("Updated _init_weights method to preserve ClinVec embeddings")
+
+
+# Example usage functions
+def load_for_exmedbert_pretraining(model, code_dict, clinvec_dir: str):
+    """Load ClinVec embeddings for ExMed-BERT pre-training"""
+    stats = integrate_clinvec_with_exmedbert(
+        model=model,
+        code_dict=code_dict,
+        clinvec_dir=clinvec_dir,
+        vocab_types=["icd9cm", "icd10cm", "phecode", "rxnorm", "atc"],
+        resize_if_needed=True,
+        verbose=True
+    )
+    
+    # Update initialization method
+    update_exmedbert_init_weights(model)
+    
+    return stats
+
+
+def load_for_exmedbert_finetuning(model, code_dict, clinvec_dir: str, focus_vocab: str = "icd10cm"):
+    """Load specific vocabulary embeddings for fine-tuning"""
+    stats = integrate_clinvec_with_exmedbert(
+        model=model,
+        code_dict=code_dict,
+        clinvec_dir=clinvec_dir,
+        vocab_types=[focus_vocab],
+        resize_if_needed=True,
+        use_hierarchical_init=True,
+        verbose=True
+    )
+    
+    update_exmedbert_init_weights(model)
+    
+    return stats
+
+
+def test_hierarchical_matching():
+    """Test function to demonstrate hierarchical code matching"""
+    matcher = HierarchicalCodeMatcher()
+    
+    test_cases = [
+        "E11.65",    # Type 2 diabetes with hyperglycemia
+        "E11.9",     # Type 2 diabetes without complications
+        "250.01",    # Diabetes mellitus without mention of complication, type I
+        "I10",       # Essential hypertension
+        "Z51.11"     # Encounter for antineoplastic chemotherapy
+    ]
+    
+    print("=== Hierarchical Code Matching Test ===")
+    
+    for code in test_cases:
+        hierarchy = matcher.get_code_hierarchy(code)
+        print(f"\n{code}:")
+        print(f"  Type: {'ICD-10' if matcher.is_icd10_code(code) else 'ICD-9' if matcher.is_icd9_code(code) else 'Other'}")
+        print(f"  Hierarchy: {' → '.join(hierarchy)}")
+    
+    # Test parent finding with mock embeddings
+    mock_embeddings = {
+        "E11": torch.randn(128),
+        "E11.6": torch.randn(128),
+        "250": torch.randn(128),
+        "250.0": torch.randn(128)
+    }
+    
+    print(f"\n=== Parent Embedding Test ===")
+    print("Available embeddings:", list(mock_embeddings.keys()))
+    
+    for novel_code in ["E11.65", "E11.321", "250.01", "999.99"]:
+        parent_emb = matcher.find_best_parent_embedding(novel_code, mock_embeddings)
+        if parent_emb is not None:
+            print(f"{novel_code}: Found parent embedding ✓")
+        else:
+            print(f"{novel_code}: No parent found ✗")
+
+
+if __name__ == "__main__":
+    test_hierarchical_matching()
