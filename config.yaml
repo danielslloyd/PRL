@@ -22,6 +22,14 @@ data_prep_params_example:
   use_sep: false
   valid_patient: true
 
+# ClinVec Integration Parameters
+clinvec_params:
+  use_clinvec: true
+  clinvec_dir: "path/to/ClinVec"  # Update this path to your ClinVec dataset
+  vocab_types: ["icd9cm", "icd10cm", "phecode"]
+  use_hierarchical_init: true
+  resize_if_needed: true
+
 # ExMed-BERT Test Parameters
 training_params_example:
   training_data: "pretrain_stuff/demo_train_patient_dataset.pt"
