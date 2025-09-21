@@ -21,7 +21,6 @@ from exmed_bert.data.encoding import (
     EndpointDict,
     SexDict,
     StateDict,
-    icd_to_phewas,
     rxcui_to_atc4,
 )
 from exmed_bert.utils.sequence_prep import (
@@ -68,7 +67,6 @@ class Patient(object):
     drop_duplicates: InitVar[bool] = True
     # TODO: Remove converted_codes for clarity
     converted_codes: InitVar[bool] = False
-    convert_icd_to_phewas: InitVar[bool] = True
     convert_rxcui_to_atc: InitVar[bool] = True
     keep_min_unmasked: InitVar[int] = 1
     max_masked_tokens: InitVar[int] = 20
@@ -114,7 +112,6 @@ class Patient(object):
         split_sequence: bool,
         drop_duplicates: bool,
         converted_codes: bool,
-        convert_icd_to_phewas: bool,
         convert_rxcui_to_atc: bool,
         keep_min_unmasked: int,
         max_masked_tokens: int,
@@ -198,7 +195,6 @@ class Patient(object):
             split_sequence=split_sequence,
             drop_duplicates=drop_duplicates,
             converted_codes=converted_codes,
-            convert_icd_to_phewas=convert_icd_to_phewas,
             convert_rxcui_to_atc=convert_rxcui_to_atc,
             dynamic_masking=self.dynamic_masking,
             keep_min_unmasked=keep_min_unmasked,
@@ -244,10 +240,9 @@ class Patient(object):
         code_embed: CodeDict,
         drop_duplicates: bool = True,
         converted_codes: bool = False,
-        convert_icd_to_phewas: bool = True,
         convert_rxcui_to_atc: bool = True,
     ) -> Tuple[List[str], List[datetime]]:
-        """Combine atc and phewas codes to one sequence
+        """Combine atc and icd codes to one sequence
 
         Args:
             diagnosis_dates (List[date]): [description]
@@ -257,7 +252,6 @@ class Patient(object):
             code_embed (CodeDict): [description]
             drop_duplicates (bool, optional): [description]. Defaults to True.
             converted_codes (bool, optional): [description]. Defaults to False.
-            convert_icd_to_phewas (bool, optional): Converts icd9/icd10 codes to phecodes. Defaults to True.
             convert_rxcui_to_atc (bool, optional): Converts rxnorm ids to atc ids. Defaults to True.
 
         Raises:
@@ -295,17 +289,7 @@ class Patient(object):
                 if diagnosis_date == time_point
             ]
             diagnoses_at_time = [diagnoses[idx] for idx in diagnosis_index]
-            if (
-                not converted_codes
-                and convert_icd_to_phewas
-                and len(diagnoses_at_time) > 0
-            ):
-                # diagnoses are coded in icd => convert to phewas
-                if code_embed is None:
-                    raise Exception("Code dictionary is required")
-                diagnoses_at_time = icd_to_phewas(
-                    diagnoses_at_time, icd_to_pw=code_embed.icd_phewas_map  # type: ignore
-                )
+            # ICD codes are used directly without conversion
 
             # processing of drugs
             drug_index = [
@@ -340,7 +324,6 @@ class Patient(object):
         split_sequence: bool = True,
         drop_duplicates: bool = True,
         converted_codes: bool = False,
-        convert_icd_to_phewas: bool = True,
         convert_rxcui_to_atc: bool = True,
         dynamic_masking: bool = True,
         keep_min_unmasked: int = 1,
@@ -360,7 +343,6 @@ class Patient(object):
             split_sequence (bool, optional): Indicate whether sequences should be split. Defaults to True.
             drop_duplicates (bool, optional): Indicate whether duplicate codes should be dropped. Defaults to True.
             converted_codes (bool, optional): Indicate whether codes need conversion. Defaults to False.
-            convert_icd_to_phewas (bool, optional): Indicate whether icd codes are present. Defaults to True.
             convert_rxcui_to_atc (bool, optional): Indicate whether atc codes are present. Defaults to True.
             dynamic_masking (bool, optional): Indicate whether masking should be performed dynamically. Defaults to True.
             keep_min_unmasked (int, optional): Minimum unmasked tokens. Defaults to 1.
@@ -384,7 +366,6 @@ class Patient(object):
                 code_embed=code_embed,
                 drop_duplicates=drop_duplicates,
                 converted_codes=converted_codes,
-                convert_icd_to_phewas=convert_icd_to_phewas,
                 convert_rxcui_to_atc=convert_rxcui_to_atc,
             )
             unique_dates = sorted(set(self.time_points))
@@ -918,7 +899,7 @@ class Patient(object):
         n_diag = int(0.25 * target_length) + int(random.random() * (target_length / 2))
         n_drug = target_length - n_diag
 
-        diagnoses = random.choices(list(code_embed.phewas_codes), k=n_diag)
+        diagnoses = random.choices(list(code_embed.icd_codes), k=n_diag)
         drugs = random.choices(list(code_embed.atc_codes), k=n_drug)
         diagnosis_dates = cls.generate_time_series(start, end, n_diag)
         prescription_dates = cls.generate_time_series(start, end, n_drug)

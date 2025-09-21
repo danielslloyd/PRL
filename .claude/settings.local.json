@@ -11,7 +11,8 @@
       "Bash(\"/c/Users/U064928/AppData/Local/anaconda3/Scripts/conda.exe\" init bash)",
       "Bash(source:*)",
       "Bash(\"/c/Users/U064928/AppData/Local/anaconda3/Scripts/conda.exe\" env create -f environment.yaml)",
-      "Bash(\"/c/Users/U064928/AppData/Local/anaconda3/Scripts/conda.exe\" activate exmed-bert)"
+      "Bash(\"/c/Users/U064928/AppData/Local/anaconda3/Scripts/conda.exe\" activate exmed-bert)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []

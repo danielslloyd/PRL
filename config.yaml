@@ -9,7 +9,7 @@ data_prep_params_example:
   split_sequence: true
   drop_duplicates: true
   converted_codes: false
-  convert_icd_to_phewas: true
+  convert_icd_to_phewas: false  # Keep raw ICD-10 codes for ClinVec integration
   convert_rxcui_to_atc: true
   min_unmasked: 1
   max_masked: 20
@@ -23,10 +23,14 @@ data_prep_params_example:
   valid_patient: true
 
 # ClinVec Integration Parameters
+# To use ClinVec:
+# 1. Download from: https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/Z6H1A8
+# 2. Extract to a folder (e.g., "ClinVec/")
+# 3. Update clinvec_dir below to the actual path
 clinvec_params:
-  use_clinvec: true
-  clinvec_dir: "path/to/ClinVec"  # Update this path to your ClinVec dataset
-  vocab_types: ["icd9cm", "icd10cm", "phecode"]
+  use_clinvec: true  # Set to true after downloading ClinVec
+  clinvec_dir: "../ClinVec"  # Change to your actual ClinVec directory path
+  vocab_types: ["icd10cm"]  # Focus on ICD-10 since training data uses ICD-10 codes
   use_hierarchical_init: true
   resize_if_needed: true
 

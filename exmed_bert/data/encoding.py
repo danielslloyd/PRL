@@ -391,40 +391,36 @@ class CodeDict(EmbedDict):
     def __init__(
         self,
         atc_codes: List[str],
-        phewas_codes: List[str],
+        icd_codes: List[str],
         rx_to_atc_map: Optional[Dict[str, str]] = None,
-        icd_to_phewas_map: Optional[Dict[str, str]] = None,
     ) -> None:
-        """Initializes a code dict for ATC and Phewas codes
+        """Initializes a code dict for ATC and ICD codes
 
         Args:
-            atc_codes (List[str]): List of atc codes
-            phewas_codes (List[str]): List of phecodes
+            atc_codes (List[str]): List of ATC codes
+            icd_codes (List[str]): List of ICD codes
             rx_to_atc_map (Dict[str, str], optional): Mapping from rxcuis to atc. Defaults to None.
-            icd_to_phewas_map (Dict[str, str], optional): Mapping from icd to phecodes. Defaults to None.
         """
         super().__init__(defaults=DICT_DEFAULTS)
         assert (
-            len(set(atc_codes).intersection(set(phewas_codes))) == 0
+            len(set(atc_codes).intersection(set(icd_codes))) == 0
         ), "Codes are not unique"
 
         if atc_codes is not None:
             self._add_labels_to_dict(atc_codes, entity="atc")
 
-        if phewas_codes is not None:
-            self._add_labels_to_dict(phewas_codes, entity="phewas")
+        if icd_codes is not None:
+            self._add_labels_to_dict(icd_codes, entity="icd")
 
         self.atc_codes = frozenset(atc_codes)
-        self.phewas_codes = frozenset(phewas_codes)
+        self.icd_codes = frozenset(icd_codes)
         self.rx_atc_map = rx_to_atc_map
-        self.icd_phewas_map = icd_to_phewas_map
 
     def __eq__(self, other: "CodeDict") -> bool:
         """Check if two dictionaries match"""
         if (
             super().__eq__(other)
             and self.rx_atc_map == other.rx_atc_map
-            and self.icd_phewas_map == other.icd_phewas_map
         ):
             return True
         else:
@@ -443,23 +439,23 @@ class CodeDict(EmbedDict):
             Exception
 
         Returns:
-            Dict[str, List[Any]]: Dictionary with ATC and Phewas codes
+            Dict[str, List[Any]]: Dictionary with ATC and ICD codes
         """
         assert len(codes) == len(dates)
 
         output = {
             "atc_codes": [],
             "atc_dates": [],
-            "phewas_codes": [],
-            "phewas_dates": [],
+            "icd_codes": [],
+            "icd_dates": [],
         }
         for code, date in zip(codes, dates):
             if code in self.atc_codes:
                 output["atc_codes"].append(code)
                 output["atc_dates"].append(date)
-            elif code in self.phewas_codes:
-                output["phewas_codes"].append(code)
-                output["phewas_dates"].append(date)
+            elif code in self.icd_codes:
+                output["icd_codes"].append(code)
+                output["icd_dates"].append(date)
             elif code in DICT_DEFAULTS:
                 pass
             else:
@@ -473,8 +469,7 @@ class CodeDict(EmbedDict):
         """Copies content from another CodeDict"""
         cd = CodeDict([], [])
         cd.atc_codes = other_dict.atc_codes
-        cd.icd_phewas_map = other_dict.icd_phewas_map
-        cd.phewas_codes = other_dict.phewas_codes
+        cd.icd_codes = other_dict.icd_codes
         cd.rx_atc_map = other_dict.rx_atc_map
         cd.ids_to_entity = other_dict.ids_to_entity
         cd.entity_to_id = other_dict.entity_to_id

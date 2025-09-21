@@ -78,6 +78,14 @@ class ClinVecLoader:
             
             # Get embedding values (exclude metadata columns)
             emb_values = row.drop(['node_index', 'node_id', 'node_name', 'ntype']).values
+
+            # Convert object array to float32 numpy array first
+            if emb_values.dtype == object:
+                # Convert each element to float, then create float32 array
+                emb_values = np.array([float(val) for val in emb_values], dtype=np.float32)
+            else:
+                emb_values = emb_values.astype(np.float32)
+
             embeddings_dict[original_code] = torch.tensor(emb_values, dtype=torch.float32)
         
         self.embeddings_cache[vocab_key] = embeddings_dict
@@ -281,7 +289,7 @@ def integrate_clinvec_with_exmedbert(
         if clinvec_dim != model_dim:
             if resize_if_needed:
                 if verbose:
-                    print(f"Resizing {vocab_type} embeddings: {clinvec_dim} → {model_dim}")
+                    print(f"Resizing {vocab_type} embeddings: {clinvec_dim} -> {model_dim}")
                 clinvec_embeddings = loader.resize_embeddings(clinvec_embeddings, model_dim)
             else:
                 logger.warning(f"Dimension mismatch for {vocab_type}: {clinvec_dim} vs {model_dim}")
@@ -294,7 +302,53 @@ def integrate_clinvec_with_exmedbert(
         # Phase 1: Direct matching - load exact matches
         loaded_count = 0
         matched_codes = set()
-        
+
+        # Debug: Show sample codes for format comparison
+        if verbose:
+            clinvec_sample = list(clinvec_embeddings.keys())[:10]
+            print(f"Sample ClinVec codes: {clinvec_sample}")
+
+            # Debug training vocabulary structure
+            print(f"Code dict type: {type(code_dict)}")
+            print(f"Code dict attributes: {dir(code_dict)}")
+
+            if hasattr(code_dict, 'stoi'):
+                print(f"stoi type: {type(code_dict.stoi)}")
+                print(f"stoi length: {len(code_dict.stoi) if code_dict.stoi else 'None/Empty'}")
+                if code_dict.stoi:
+                    vocab_sample = list(code_dict.stoi.keys())[:10]
+                    print(f"Sample training vocab codes (stoi): {vocab_sample}")
+
+            if hasattr(code_dict, 'entity_to_id'):
+                print(f"entity_to_id type: {type(code_dict.entity_to_id)}")
+                print(f"entity_to_id length: {len(code_dict.entity_to_id) if code_dict.entity_to_id else 'None/Empty'}")
+                if code_dict.entity_to_id:
+                    vocab_sample = list(code_dict.entity_to_id.keys())[:10]
+                    print(f"Sample training vocab codes (entity_to_id): {vocab_sample}")
+
+            if hasattr(code_dict, '__contains__'):
+                print(f"Code dict supports 'in' operator")
+
+            if hasattr(code_dict, 'keys'):
+                vocab_sample = list(code_dict.keys())[:10] if callable(getattr(code_dict, 'keys', None)) else []
+                print(f"Sample training vocab codes (keys): {vocab_sample}")
+
+            # Debug the actual vocabularies
+            if hasattr(code_dict, 'vocab'):
+                print(f"Vocab length: {len(code_dict.vocab)}")
+                print(f"Sample vocab: {list(code_dict.vocab)[:20]}")
+
+            if hasattr(code_dict, 'labels_to_id'):
+                print(f"labels_to_id length: {len(code_dict.labels_to_id)}")
+                # Look specifically for ICD-10 codes
+                icd_codes = [code for code in code_dict.labels_to_id.keys() if isinstance(code, str) and len(code) >= 3 and code[0].isalpha()]
+                print(f"Sample ICD-like codes: {icd_codes[:20]}")
+
+            if hasattr(code_dict, 'icd_phewas_map'):
+                print(f"icd_phewas_map length: {len(code_dict.icd_phewas_map) if code_dict.icd_phewas_map else 'None'}")
+                if code_dict.icd_phewas_map:
+                    print(f"Sample ICD-to-Phewas mappings: {list(code_dict.icd_phewas_map.items())[:10]}")
+
         with torch.no_grad():
             for original_code, embedding in clinvec_embeddings.items():
                 # Try different code formats that might exist in ExMed-BERT vocabulary
@@ -314,23 +368,58 @@ def integrate_clinvec_with_exmedbert(
                 
                 # Check if any variant exists in model vocabulary
                 for code_variant in possible_codes:
-                    if hasattr(code_dict, 'stoi') and code_variant in code_dict.stoi:
-                        vocab_idx = code_dict.stoi[code_variant]
-                        model.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                    # Check ExMed-BERT CodeDict format first (labels_to_id)
+                    if hasattr(code_dict, 'labels_to_id') and code_variant in code_dict.labels_to_id:
+                        vocab_idx = code_dict.labels_to_id[code_variant]
+                        # Handle different model structures
+                        if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
+                            model.bert.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                        elif hasattr(model, 'embeddings'):
+                            model.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                        else:
+                            logger.warning(f"Could not find embeddings in model structure for {code_variant}")
+                            continue
                         loaded_count += 1
                         matched_codes.add(code_variant)
                         if verbose and loaded_count <= 5:  # Show first few matches
-                            print(f"  ✓ {original_code} → {code_variant} (idx: {vocab_idx})")
+                            print(f"  + {original_code} -> {code_variant} (idx: {vocab_idx})")
                         break
-                    elif hasattr(code_dict, '__contains__') and code_variant in code_dict:
-                        # Alternative dictionary interface
-                        vocab_idx = code_dict[code_variant]
-                        model.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                    # Fallback: check for stoi attribute (other tokenizer formats)
+                    elif hasattr(code_dict, 'stoi') and code_variant in code_dict.stoi:
+                        vocab_idx = code_dict.stoi[code_variant]
+                        # Handle different model structures
+                        if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
+                            model.bert.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                        elif hasattr(model, 'embeddings'):
+                            model.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                        else:
+                            logger.warning(f"Could not find embeddings in model structure for {code_variant}")
+                            continue
                         loaded_count += 1
                         matched_codes.add(code_variant)
-                        if verbose and loaded_count <= 5:
-                            print(f"  ✓ {original_code} → {code_variant} (idx: {vocab_idx})")
+                        if verbose and loaded_count <= 5:  # Show first few matches
+                            print(f"  + {original_code} -> {code_variant} (idx: {vocab_idx})")
                         break
+                    # Fallback: check for generic dictionary interface
+                    elif hasattr(code_dict, '__contains__') and code_variant in code_dict:
+                        try:
+                            vocab_idx = code_dict[code_variant]
+                            # Handle different model structures
+                            if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
+                                model.bert.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                            elif hasattr(model, 'embeddings'):
+                                model.embeddings.code_embeddings.weight[vocab_idx] = embedding
+                            else:
+                                logger.warning(f"Could not find embeddings in model structure for {code_variant}")
+                                continue
+                            loaded_count += 1
+                            matched_codes.add(code_variant)
+                            if verbose and loaded_count <= 5:
+                                print(f"  + {original_code} -> {code_variant} (idx: {vocab_idx})")
+                            break
+                        except (KeyError, TypeError):
+                            # Dictionary interface failed, continue to next variant
+                            continue
         
         stats[vocab_type] = loaded_count
         
@@ -347,24 +436,58 @@ def integrate_clinvec_with_exmedbert(
         
         with torch.no_grad():
             # Find novel codes in vocabulary that don't have embeddings
-            if hasattr(code_dict, 'stoi'):
+            # Check ExMed-BERT CodeDict format first (labels_to_id)
+            if hasattr(code_dict, 'labels_to_id'):
+                for vocab_code, vocab_idx in code_dict.labels_to_id.items():
+                    if vocab_code not in matched_codes:
+                        # Try to find parent embedding
+                        parent_embedding = hierarchical_matcher.find_best_parent_embedding(
+                            vocab_code, all_available_embeddings
+                        )
+
+                        if parent_embedding is not None:
+                            # Add small noise to distinguish from parent
+                            noise = torch.normal(0, 0.02, size=parent_embedding.shape)
+                            novel_embedding = parent_embedding + noise
+
+                            # Handle different model structures
+                            if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
+                                model.bert.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
+                            elif hasattr(model, 'embeddings'):
+                                model.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
+                            else:
+                                logger.warning(f"Could not find embeddings in model structure for hierarchical init of {vocab_code}")
+                                continue
+                            hierarchical_count += 1
+
+                            if verbose and hierarchical_count <= 10:
+                                print(f"  o {vocab_code} initialized from hierarchy")
+            # Fallback for other tokenizer formats
+            elif hasattr(code_dict, 'stoi'):
                 for vocab_code, vocab_idx in code_dict.stoi.items():
                     if vocab_code not in matched_codes:
                         # Try to find parent embedding
                         parent_embedding = hierarchical_matcher.find_best_parent_embedding(
                             vocab_code, all_available_embeddings
                         )
-                        
+
                         if parent_embedding is not None:
                             # Add small noise to distinguish from parent
                             noise = torch.normal(0, 0.02, size=parent_embedding.shape)
                             novel_embedding = parent_embedding + noise
-                            
-                            model.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
+
+                            # Handle different model structures
+                            if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
+                                model.bert.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
+                            elif hasattr(model, 'embeddings'):
+                                model.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
+                            else:
+                                logger.warning(f"Could not find embeddings in model structure for hierarchical init of {vocab_code}")
+                                continue
                             hierarchical_count += 1
-                            
+
                             if verbose and hierarchical_count <= 10:
-                                print(f"  ◐ {vocab_code} initialized from hierarchy")
+                                print(f"  o {vocab_code} initialized from hierarchy")
         
         if verbose:
             print(f"  Hierarchical initializations: {hierarchical_count}")
@@ -373,7 +496,10 @@ def integrate_clinvec_with_exmedbert(
         stats['hierarchical_init'] = hierarchical_count
     
     # Mark embeddings as pre-loaded to prevent re-initialization
-    model.embeddings.code_embeddings._clinvec_loaded = True
+    if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
+        model.bert.embeddings.code_embeddings._clinvec_loaded = True
+    elif hasattr(model, 'embeddings'):
+        model.embeddings.code_embeddings._clinvec_loaded = True
     
     total_loaded = sum(stats.values())
     if verbose:
@@ -479,9 +605,9 @@ def test_hierarchical_matching():
     for novel_code in ["E11.65", "E11.321", "250.01", "999.99"]:
         parent_emb = matcher.find_best_parent_embedding(novel_code, mock_embeddings)
         if parent_emb is not None:
-            print(f"{novel_code}: Found parent embedding ✓")
+            print(f"{novel_code}: Found parent embedding +")
         else:
-            print(f"{novel_code}: No parent found ✗")
+            print(f"{novel_code}: No parent found x")
 
 
 if __name__ == "__main__":
