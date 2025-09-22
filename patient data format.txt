@@ -1,0 +1,128 @@
+● Looking at the ExMed-BERT data preparation pipeline, your real patient data should be in a specific      
+  format for the Patient class. Based on the code structure, here are the required formats:
+
+  Required Patient Data Format
+
+  Option 1: Python Dictionary Format (Recommended)
+
+  patients = [
+      {
+          'patient_id': 12345,
+          'diagnoses': ['E11.9', 'I10', 'Z51.11', 'K21.0'],  # ICD-10 codes
+          'diagnosis_dates': [
+              date(2021, 1, 15),
+              date(2021, 2, 3),
+              date(2021, 3, 10),
+              date(2021, 4, 20)
+          ],
+          'drugs': ['860975', '197361', '123456'],  # RxNorm CUIs
+          'prescription_dates': [
+              date(2021, 1, 20),
+              date(2021, 2, 8),
+              date(2021, 3, 15)
+          ],
+          'birth_year': 1985,
+          'sex': 'MALE',  # or 'FEMALE'
+          'patient_state': 'CA',  # US state abbreviation
+          'plos': 0  # 0 or 1 (optional, for PLOS prediction)
+      },
+      # ... more patients
+  ]
+
+  Option 2: CSV/Pandas DataFrame Format
+
+  If your data is in CSV format, you'll need these columns:
+
+  patient_id,diagnoses,diagnosis_dates,drugs,prescription_dates,birth_year,sex,patient_state,plos
+  12345,"E11.9;I10;Z51.11","2021-01-15;2021-02-03;2021-03-10","860975;197361","2021-01-20;2021-02-08",1    
+  985,MALE,CA,0
+  67890,"M17.9;E78.5","2021-05-12;2021-06-20","123456;654321","2021-05-15;2021-06-25",1978,FEMALE,NY,1     
+
+  Then convert to the required format:
+  import pandas as pd
+  from datetime import datetime
+
+  df = pd.read_csv('patient_data.csv')
+
+  patients = []
+  for _, row in df.iterrows():
+      # Parse semicolon-separated lists
+      diagnoses = row['diagnoses'].split(';') if pd.notna(row['diagnoses']) else []
+      diagnosis_dates = [datetime.strptime(d, '%Y-%m-%d').date()
+                        for d in row['diagnosis_dates'].split(';')] if pd.notna(row['diagnosis_dates'])    
+   else []
+
+      drugs = row['drugs'].split(';') if pd.notna(row['drugs']) else []
+      prescription_dates = [datetime.strptime(d, '%Y-%m-%d').date()
+                           for d in row['prescription_dates'].split(';')] if
+  pd.notna(row['prescription_dates']) else []
+
+      patients.append({
+          'patient_id': row['patient_id'],
+          'diagnoses': diagnoses,
+          'diagnosis_dates': diagnosis_dates,
+          'drugs': drugs,
+          'prescription_dates': prescription_dates,
+          'birth_year': row['birth_year'],
+          'sex': row['sex'],
+          'patient_state': row['patient_state'],
+          'plos': row['plos'] if pd.notna(row['plos']) else 0
+      })
+
+  Data Requirements & Constraints
+
+  Medical Codes
+
+  - ICD codes: Use ICD-10 format (e.g., E11.9, I10, Z51.11)
+    - Keep raw ICD-10 codes since convert_icd_to_phewas: false in your config
+  - Drug codes: Use RxNorm CUIs (e.g., 860975, 197361)
+    - These will be automatically converted to ATC codes via rx_to_atc_map
+
+  Dates
+
+  - Use Python datetime.date objects
+  - Must be chronologically ordered within each patient
+  - diagnosis_dates must align with diagnoses (same length, same index order)
+  - prescription_dates must align with drugs (same length, same index order)
+
+  Demographics
+
+  - sex: 'MALE' or 'FEMALE' (exact strings)
+  - patient_state: US state abbreviation (e.g., 'CA', 'NY', 'TX')
+  - birth_year: Integer year (e.g., 1985)
+
+  Vocabularies
+
+  Update these in your data preparation to match your real data:
+
+  # In explain.ipynb or your data prep script
+
+  # Your actual ATC codes (from drug mappings)
+  atc_codes = ['A01AA01', 'B01AC06', ...]  # Update with real ATC codes
+
+  # Your actual ICD-10 codes (from patient diagnoses)
+  icd_codes = ['E11.9', 'I10', 'Z51.11', ...]  # Update with real ICD codes
+
+  # Your actual RxNorm to ATC mapping
+  rx_to_atc_map = {
+      '860975': 'A01AA01',  # Real RxNorm CUI -> ATC mapping
+      '197361': 'B01AC06',
+      # ... your actual mappings
+  }
+
+  # Your actual states
+  state_list = ['CA', 'NY', 'TX', ...]  # States present in your data
+
+  Integration Steps
+
+  1. Replace the dummy data in explain.ipynb cell that defines patients = [...]
+  2. Update vocabulary definitions to match your real data vocabularies
+  3. Ensure data quality:
+    - All dates are valid and chronological
+    - All codes exist in your vocabularies
+    - No missing required fields
+  4. Test with small subset first before processing full dataset
+  5. Run the data preparation pipeline as normal
+
+  The key is maintaining the exact data structure expected by the Patient class constructor - all the      
+  field names and data types must match exactly.

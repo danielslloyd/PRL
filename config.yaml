@@ -33,6 +33,7 @@ clinvec_params:
   vocab_types: ["icd10cm"]  # Focus on ICD-10 since training data uses ICD-10 codes
   use_hierarchical_init: true
   resize_if_needed: true
+  resize_method: "auto"  # auto, truncate, pca, learned_projection, pad_smart, pad_random
 
 # ExMed-BERT Test Parameters
 training_params_example:

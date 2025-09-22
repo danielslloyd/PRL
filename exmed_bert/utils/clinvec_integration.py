@@ -93,38 +93,183 @@ class ClinVecLoader:
         
         return embeddings_dict
     
-    def resize_embeddings(self, embeddings: Dict[str, torch.Tensor], target_dim: int) -> Dict[str, torch.Tensor]:
+    def resize_embeddings(self, embeddings: Dict[str, torch.Tensor], target_dim: int,
+                         method: str = "auto") -> Dict[str, torch.Tensor]:
         """
-        Resize embeddings to match model dimensions
-        
+        Intelligently resize embeddings to match model dimensions
+
         Args:
             embeddings: Dictionary of embeddings
             target_dim: Target embedding dimension
-            
+            method: Resizing method - "auto", "truncate", "pca", "learned_projection", "pad_smart", "pad_random"
+
         Returns:
             Resized embeddings dictionary
         """
         if not embeddings:
             return embeddings
-            
+
         sample_emb = next(iter(embeddings.values()))
         current_dim = sample_emb.shape[0]
-        
+
         if current_dim == target_dim:
             return embeddings
-        
-        logger.info(f"Resizing embeddings from {current_dim} to {target_dim} dimensions")
-        
+
+        # Automatically select method if not specified
+        if method == "auto":
+            method = self._select_resize_method(current_dim, target_dim)
+
+        logger.info(f"Resizing embeddings from {current_dim} to {target_dim} dimensions using method: {method}")
+
+        # Apply the selected method
+        if method == "truncate":
+            return self._resize_truncate(embeddings, target_dim)
+        elif method == "pca":
+            return self._resize_pca(embeddings, current_dim, target_dim)
+        elif method == "learned_projection":
+            return self._resize_learned_projection(embeddings, current_dim, target_dim)
+        elif method == "pad_smart":
+            return self._resize_pad_smart(embeddings, current_dim, target_dim)
+        elif method == "pad_random":
+            return self._resize_pad_random(embeddings, current_dim, target_dim)
+        else:
+            logger.warning(f"Unknown resize method: {method}. Falling back to simple resize.")
+            return self._resize_simple(embeddings, current_dim, target_dim)
+
+    def _select_resize_method(self, current_dim: int, target_dim: int) -> str:
+        """
+        Automatically select the best resizing method based on dimension ratio
+
+        Args:
+            current_dim: Current embedding dimension
+            target_dim: Target embedding dimension
+
+        Returns:
+            Selected method name
+        """
+        ratio = target_dim / current_dim
+
+        if ratio == 1.0:
+            return "none"
+        elif ratio < 1.0:  # Compression needed
+            compression_ratio = ratio
+            if compression_ratio > 0.8:
+                return "truncate"  # Preserve ClinVec structure
+            else:
+                return "pca"  # Maximize information retention
+        else:  # Expansion needed
+            expansion_ratio = ratio
+            if expansion_ratio < 1.2:
+                return "learned_projection"  # Structured expansion
+            else:
+                return "pad_smart"  # Let transformer adapt
+
+    def _resize_truncate(self, embeddings: Dict[str, torch.Tensor], target_dim: int) -> Dict[str, torch.Tensor]:
+        """Simple truncation - preserve first dimensions"""
+        logger.info("Using truncation method - preserving ClinVec structure")
+        return {code: emb[:target_dim] for code, emb in embeddings.items()}
+
+    def _resize_pca(self, embeddings: Dict[str, torch.Tensor], current_dim: int, target_dim: int) -> Dict[str, torch.Tensor]:
+        """PCA-based compression - maximize information retention"""
+        logger.info("Using PCA method - maximizing information retention")
+
+        # Stack all embeddings for PCA
+        embedding_list = list(embeddings.values())
+        stacked_embeddings = torch.stack(embedding_list)  # Shape: [vocab_size, current_dim]
+
+        # Compute PCA using SVD
+        U, S, V = torch.pca_lowrank(stacked_embeddings, q=target_dim)
+
+        # V contains the principal components - shape: [current_dim, target_dim]
+        projection_matrix = V[:, :target_dim]
+
+        # Project each embedding
+        resized = {}
+        for code, emb in embeddings.items():
+            resized[code] = emb @ projection_matrix
+
+        logger.info(f"PCA explained variance ratio: {(S[:target_dim].sum() / S.sum()).item():.3f}")
+        return resized
+
+    def _resize_learned_projection(self, embeddings: Dict[str, torch.Tensor], current_dim: int, target_dim: int) -> Dict[str, torch.Tensor]:
+        """Learned projection - structured expansion"""
+        logger.info("Using learned projection method - structured expansion")
+
+        # Create a projection layer
+        projection = torch.nn.Linear(current_dim, target_dim, bias=False)
+
+        # Smart initialization to preserve ClinVec structure
+        with torch.no_grad():
+            if target_dim >= current_dim:
+                # Expanding: preserve original dimensions in first part
+                projection.weight[:current_dim, :current_dim] = torch.eye(current_dim)
+                # Initialize additional dimensions with small random weights
+                if target_dim > current_dim:
+                    torch.nn.init.normal_(projection.weight[current_dim:, :], mean=0, std=0.01)
+                    torch.nn.init.normal_(projection.weight[:current_dim, current_dim:], mean=0, std=0.01)
+            else:
+                # This shouldn't happen with learned_projection, but handle gracefully
+                torch.nn.init.orthogonal_(projection.weight)
+
+        # Apply projection
+        resized = {}
+        with torch.no_grad():
+            for code, emb in embeddings.items():
+                resized[code] = projection(emb)
+
+        return resized
+
+    def _resize_pad_smart(self, embeddings: Dict[str, torch.Tensor], current_dim: int, target_dim: int) -> Dict[str, torch.Tensor]:
+        """Smart padding - structured expansion for large dimension increases"""
+        logger.info("Using smart padding method - letting transformer adapt")
+
+        padding_size = target_dim - current_dim
+
+        resized = {}
+        for code, emb in embeddings.items():
+            # Calculate padding based on embedding statistics
+            emb_std = emb.std().item()
+            emb_mean = emb.mean().item()
+
+            # Create structured padding
+            if padding_size <= current_dim:
+                # Small expansion: echo part of the original embedding with noise
+                echo_size = padding_size
+                echo_indices = torch.randperm(current_dim)[:echo_size]
+                padding = emb[echo_indices] + torch.normal(0, emb_std * 0.1, size=(echo_size,))
+            else:
+                # Large expansion: echo full embedding + random
+                echo_emb = emb + torch.normal(0, emb_std * 0.1, size=(current_dim,))
+                remaining_size = padding_size - current_dim
+                random_padding = torch.normal(emb_mean, emb_std * 0.1, size=(remaining_size,))
+                padding = torch.cat([echo_emb, random_padding])
+
+            resized[code] = torch.cat([emb, padding])
+
+        return resized
+
+    def _resize_pad_random(self, embeddings: Dict[str, torch.Tensor], current_dim: int, target_dim: int) -> Dict[str, torch.Tensor]:
+        """Random padding - simple expansion"""
+        logger.info("Using random padding method")
+
+        padding_size = target_dim - current_dim
+
+        resized = {}
+        for code, emb in embeddings.items():
+            padding = torch.normal(0, 0.01, size=(padding_size,))
+            resized[code] = torch.cat([emb, padding])
+
+        return resized
+
+    def _resize_simple(self, embeddings: Dict[str, torch.Tensor], current_dim: int, target_dim: int) -> Dict[str, torch.Tensor]:
+        """Fallback to original simple method"""
         resized = {}
         for code, emb in embeddings.items():
             if current_dim > target_dim:
-                # Truncate (use PCA or just take first dimensions)
                 resized[code] = emb[:target_dim]
             else:
-                # Pad with small random values
                 padding = torch.normal(0, 0.01, size=(target_dim - current_dim,))
                 resized[code] = torch.cat([emb, padding])
-        
         return resized
 
 
@@ -236,26 +381,29 @@ class HierarchicalCodeMatcher:
 
 
 def integrate_clinvec_with_exmedbert(
-    model, 
-    code_dict, 
+    model,
+    code_dict,
     clinvec_dir: str,
     vocab_types: List[str] = ["icd9cm", "icd10cm", "phecode"],
     resize_if_needed: bool = True,
+    resize_method: str = "auto",
     use_hierarchical_init: bool = True,
     verbose: bool = True
 ) -> Dict[str, int]:
     """
     Integrate ClinVec embeddings with ExMed-BERT model
-    
+
     Args:
         model: ExMed-BERT model instance
         code_dict: Code dictionary from ExMed-BERT
         clinvec_dir: Path to ClinVec dataset directory
         vocab_types: List of vocabulary types to load
         resize_if_needed: Whether to resize embeddings if dimensions don't match
+        resize_method: Method for resizing embeddings - "auto", "truncate", "pca",
+                      "learned_projection", "pad_smart", "pad_random"
         use_hierarchical_init: Whether to use hierarchical initialization for novel codes
         verbose: Whether to print detailed progress
-        
+
     Returns:
         Dictionary with loading statistics per vocabulary type
     """
@@ -290,7 +438,7 @@ def integrate_clinvec_with_exmedbert(
             if resize_if_needed:
                 if verbose:
                     print(f"Resizing {vocab_type} embeddings: {clinvec_dim} -> {model_dim}")
-                clinvec_embeddings = loader.resize_embeddings(clinvec_embeddings, model_dim)
+                clinvec_embeddings = loader.resize_embeddings(clinvec_embeddings, model_dim, resize_method)
             else:
                 logger.warning(f"Dimension mismatch for {vocab_type}: {clinvec_dim} vs {model_dim}")
                 stats[vocab_type] = 0

@@ -54,6 +54,7 @@ def pretrain(
     vocab_types: str = Option("icd9cm,icd10cm,phecode", help="Comma-separated list of vocabulary types"),
     use_hierarchical_init: bool = True,
     resize_if_needed: bool = True,
+    resize_method: str = Option("auto", help="Method for resizing embeddings: auto, truncate, pca, learned_projection, pad_smart, pad_random"),
 ):
     """
     Pretrain ExMed-BERT with optional ClinVec integration
@@ -145,6 +146,7 @@ def pretrain(
                 clinvec_dir=str(clinvec_dir),
                 vocab_types=vocab_types_list,
                 resize_if_needed=resize_if_needed,
+                resize_method=resize_method,
                 use_hierarchical_init=use_hierarchical_init,
                 verbose=True
             )
