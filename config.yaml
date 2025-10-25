@@ -30,8 +30,8 @@ data_prep_params_example:
 clinvec_params:
   use_clinvec: true  # Set to true after downloading ClinVec
   clinvec_dir: "../ClinVec"  # Change to your actual ClinVec directory path
-  vocab_types: ["icd10cm"]  # Focus on ICD-10 since training data uses ICD-10 codes
-  use_hierarchical_init: true
+  vocab_types: ["icd10cm", "atc"]  # ICD-10 for diagnoses, ATC for medications (ATC5 level)
+  use_hierarchical_init: true  # Enables cousin-based init for ATC codes, parent-based for ICD
   resize_if_needed: true
   resize_method: "auto"  # auto, truncate, pca, learned_projection, pad_smart, pad_random
 

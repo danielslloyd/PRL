@@ -63,17 +63,20 @@ def icd_to_phewas(
     return phewas_codes
 
 
-def rxcui_to_atc4(
+def rxcui_to_atc5(
     rxcui: Union[str, List[str], List[int], int], rx_to_atc_map: Dict[str, str]
 ) -> List[str]:
-    """RXCUI to ATC conversion
+    """RXCUI to ATC5 conversion
+
+    Converts RxNorm CUI codes to ATC level 5 (chemical substance) codes.
+    ATC5 codes are 7 characters (e.g., 'A01AA01').
 
     Args:
         rxcui (List[int]): List of rxcuis
-        rx_to_atc_map (Dict[str, str]): Dictionary with rxcui and atc codes
+        rx_to_atc_map (Dict[str, str]): Dictionary with rxcui and ATC5 codes
 
     Returns:
-        List[str]: mapped atc codes
+        List[str]: mapped ATC5 codes
     """
 
     def _map_to_atc(rxcode: Union[str, int], mapping: Dict[str, str]) -> List[str]:

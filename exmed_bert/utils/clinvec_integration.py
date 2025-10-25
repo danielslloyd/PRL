@@ -274,33 +274,48 @@ class ClinVecLoader:
 
 
 class HierarchicalCodeMatcher:
-    """Handle hierarchical matching for medical codes"""
-    
+    """Handle hierarchical matching for medical codes (ICD-9, ICD-10, ATC)"""
+
     def __init__(self):
         self.icd10_pattern = re.compile(r'^[A-Z]\d{2}\.?\d*$')
         self.icd9_pattern = re.compile(r'^\d{3}\.?\d*$')
+        # ATC codes: Letter + 2 digits + at least 1 more letter for ATC3+
+        # ATC5: 7 chars like A01AA01 (Level 1-5)
+        # ATC4: 5 chars like A01AA (Level 1-4)
+        # ATC3: 4 chars like A01A (Level 1-3)
+        # Must have at least one letter after the first 3 chars to distinguish from ICD
+        self.atc_pattern = re.compile(r'^[A-Z]\d{2}[A-Z][A-Z]?\d{0,2}$')
     
     def is_icd10_code(self, code: str) -> bool:
         """Check if code follows ICD-10 format"""
         return bool(self.icd10_pattern.match(code))
-    
+
     def is_icd9_code(self, code: str) -> bool:
         """Check if code follows ICD-9 format"""
         return bool(self.icd9_pattern.match(code))
+
+    def is_atc_code(self, code: str) -> bool:
+        """Check if code follows ATC format"""
+        return bool(self.atc_pattern.match(code))
     
     def get_code_hierarchy(self, code: str) -> List[str]:
         """
         Get hierarchical variants of a code, from most specific to most general
-        
-        Example: E11.65 -> ['E11.65', 'E11.6', 'E11']
+
+        Examples:
+            ICD-10: E11.65 -> ['E11.65', 'E11.6', 'E11']
+            ATC5: A01AA01 -> ['A01AA01', 'A01AA', 'A01A', 'A01']
         """
         hierarchy = [code]
-        
+
+        # Check ICD codes first (more specific due to decimal point)
         if self.is_icd10_code(code):
             hierarchy.extend(self._get_icd10_hierarchy(code))
         elif self.is_icd9_code(code):
             hierarchy.extend(self._get_icd9_hierarchy(code))
-        
+        elif self.is_atc_code(code):
+            hierarchy.extend(self._get_atc_hierarchy(code))
+
         return hierarchy
     
     def _get_icd10_hierarchy(self, code: str) -> List[str]:
@@ -342,40 +357,124 @@ class HierarchicalCodeMatcher:
                 hierarchy.append(parent)
         
         return hierarchy
-    
+
+    def _get_atc_hierarchy(self, code: str) -> List[str]:
+        """
+        Generate ATC hierarchy from specific to general
+
+        ATC hierarchy levels:
+        - Level 5 (7 chars): A01AA01 - Chemical substance
+        - Level 4 (5 chars): A01AA - Chemical subgroup
+        - Level 3 (4 chars): A01A - Pharmacological subgroup
+        - Level 2 (3 chars): A01 - Therapeutic subgroup
+
+        Example: A01AA01 -> A01AA -> A01A -> A01
+        """
+        hierarchy = []
+
+        # ATC codes don't have decimals
+        if len(code) == 7:  # ATC5: A01AA01
+            hierarchy.append(code[:5])  # ATC4: A01AA
+            hierarchy.append(code[:4])  # ATC3: A01A
+            hierarchy.append(code[:3])  # ATC2: A01
+        elif len(code) == 5:  # ATC4: A01AA
+            hierarchy.append(code[:4])  # ATC3: A01A
+            hierarchy.append(code[:3])  # ATC2: A01
+        elif len(code) == 4:  # ATC3: A01A
+            hierarchy.append(code[:3])  # ATC2: A01
+        # If len(code) == 3 (ATC2), no parents (already most general in our system)
+
+        return hierarchy
+
+    def find_cousin_average_embedding(
+        self,
+        novel_code: str,
+        available_embeddings: Dict[str, torch.Tensor]
+    ) -> Optional[torch.Tensor]:
+        """
+        Find cousin codes (siblings with same parent) and return their average embedding
+
+        For ATC codes, cousins are codes that share the same parent but differ in the final digits.
+        Example: For A01AA01, cousins are A01AA02, A01AA03, etc. (all share parent A01AA)
+
+        Args:
+            novel_code: The code without an embedding
+            available_embeddings: Dictionary of available embeddings
+
+        Returns:
+            Average embedding of cousins, or None if no cousins found
+        """
+        if not self.is_atc_code(novel_code):
+            return None
+
+        # Get the parent code (one level up)
+        hierarchy = self.get_code_hierarchy(novel_code)
+        if len(hierarchy) < 2:
+            return None
+
+        parent_code = hierarchy[1]  # First parent
+
+        # Find all cousin codes (codes with same parent)
+        cousin_embeddings = []
+        cousin_codes = []
+
+        for code, embedding in available_embeddings.items():
+            # Check if this code shares the same parent
+            if code != novel_code and code.startswith(parent_code):
+                # Verify it's at the same hierarchical level as novel_code
+                if len(code) == len(novel_code):
+                    cousin_embeddings.append(embedding)
+                    cousin_codes.append(code)
+
+        if cousin_embeddings:
+            # Average all cousin embeddings
+            avg_embedding = torch.stack(cousin_embeddings).mean(dim=0)
+            logger.info(f"Found {len(cousin_codes)} cousins for {novel_code} (parent: {parent_code}): {cousin_codes[:5]}{'...' if len(cousin_codes) > 5 else ''}")
+            return avg_embedding
+
+        logger.debug(f"No cousin embeddings found for {novel_code}")
+        return None
+
     def find_best_parent_embedding(
-        self, 
-        novel_code: str, 
+        self,
+        novel_code: str,
         available_embeddings: Dict[str, torch.Tensor]
     ) -> Optional[torch.Tensor]:
         """
         Find the best parent embedding for a novel code
-        
+
         Args:
             novel_code: The code without an embedding
             available_embeddings: Dictionary of available embeddings
-            
+
         Returns:
             Parent embedding tensor, or None if no parent found
         """
         hierarchy = self.get_code_hierarchy(novel_code)
-        
+
         # Try each level of hierarchy from most specific to most general
         for parent_code in hierarchy[1:]:  # Skip the original code
-            
+
             # Try different format variations of parent code
             parent_variations = [
                 parent_code,
                 parent_code.replace('.', ''),
                 f"ICD_{parent_code}",
-                f"ICD10CM_{parent_code}" if self.is_icd10_code(parent_code) else f"ICD9CM_{parent_code}"
             ]
-            
+
+            # Add vocab-specific prefixes based on code type
+            if self.is_icd10_code(parent_code):
+                parent_variations.append(f"ICD10CM_{parent_code}")
+            elif self.is_icd9_code(parent_code):
+                parent_variations.append(f"ICD9CM_{parent_code}")
+            elif self.is_atc_code(parent_code):
+                parent_variations.append(f"ATC_{parent_code}")
+
             for variation in parent_variations:
                 if variation in available_embeddings:
                     logger.info(f"Found parent embedding: {novel_code} -> {variation}")
                     return available_embeddings[variation]
-        
+
         logger.debug(f"No parent embedding found for {novel_code}")
         return None
 
@@ -585,19 +684,38 @@ def integrate_clinvec_with_exmedbert(
         with torch.no_grad():
             # Find novel codes in vocabulary that don't have embeddings
             # Check ExMed-BERT CodeDict format first (labels_to_id)
+            cousin_count = 0
+            parent_count = 0
             if hasattr(code_dict, 'labels_to_id'):
                 for vocab_code, vocab_idx in code_dict.labels_to_id.items():
                     if vocab_code not in matched_codes:
-                        # Try to find parent embedding
-                        parent_embedding = hierarchical_matcher.find_best_parent_embedding(
-                            vocab_code, all_available_embeddings
-                        )
+                        novel_embedding = None
+                        init_method = None
 
-                        if parent_embedding is not None:
-                            # Add small noise to distinguish from parent
-                            noise = torch.normal(0, 0.02, size=parent_embedding.shape)
-                            novel_embedding = parent_embedding + noise
+                        # For ATC codes, first try cousin-based initialization
+                        if hierarchical_matcher.is_atc_code(vocab_code):
+                            cousin_embedding = hierarchical_matcher.find_cousin_average_embedding(
+                                vocab_code, all_available_embeddings
+                            )
+                            if cousin_embedding is not None:
+                                # Use cousin average directly (no noise needed)
+                                novel_embedding = cousin_embedding
+                                init_method = "cousin"
+                                cousin_count += 1
 
+                        # If no cousin embedding found, try parent-based initialization
+                        if novel_embedding is None:
+                            parent_embedding = hierarchical_matcher.find_best_parent_embedding(
+                                vocab_code, all_available_embeddings
+                            )
+                            if parent_embedding is not None:
+                                # Add small noise to distinguish from parent
+                                noise = torch.normal(0, 0.02, size=parent_embedding.shape)
+                                novel_embedding = parent_embedding + noise
+                                init_method = "parent"
+                                parent_count += 1
+
+                        if novel_embedding is not None:
                             # Handle different model structures
                             if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
                                 model.bert.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
@@ -609,21 +727,37 @@ def integrate_clinvec_with_exmedbert(
                             hierarchical_count += 1
 
                             if verbose and hierarchical_count <= 10:
-                                print(f"  o {vocab_code} initialized from hierarchy")
+                                print(f"  o {vocab_code} initialized from {init_method}")
             # Fallback for other tokenizer formats
             elif hasattr(code_dict, 'stoi'):
                 for vocab_code, vocab_idx in code_dict.stoi.items():
                     if vocab_code not in matched_codes:
-                        # Try to find parent embedding
-                        parent_embedding = hierarchical_matcher.find_best_parent_embedding(
-                            vocab_code, all_available_embeddings
-                        )
+                        novel_embedding = None
+                        init_method = None
 
-                        if parent_embedding is not None:
-                            # Add small noise to distinguish from parent
-                            noise = torch.normal(0, 0.02, size=parent_embedding.shape)
-                            novel_embedding = parent_embedding + noise
+                        # For ATC codes, first try cousin-based initialization
+                        if hierarchical_matcher.is_atc_code(vocab_code):
+                            cousin_embedding = hierarchical_matcher.find_cousin_average_embedding(
+                                vocab_code, all_available_embeddings
+                            )
+                            if cousin_embedding is not None:
+                                novel_embedding = cousin_embedding
+                                init_method = "cousin"
+                                cousin_count += 1
 
+                        # If no cousin embedding found, try parent-based initialization
+                        if novel_embedding is None:
+                            parent_embedding = hierarchical_matcher.find_best_parent_embedding(
+                                vocab_code, all_available_embeddings
+                            )
+                            if parent_embedding is not None:
+                                # Add small noise to distinguish from parent
+                                noise = torch.normal(0, 0.02, size=parent_embedding.shape)
+                                novel_embedding = parent_embedding + noise
+                                init_method = "parent"
+                                parent_count += 1
+
+                        if novel_embedding is not None:
                             # Handle different model structures
                             if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):
                                 model.bert.embeddings.code_embeddings.weight[vocab_idx] = novel_embedding
@@ -635,13 +769,19 @@ def integrate_clinvec_with_exmedbert(
                             hierarchical_count += 1
 
                             if verbose and hierarchical_count <= 10:
-                                print(f"  o {vocab_code} initialized from hierarchy")
+                                print(f"  o {vocab_code} initialized from {init_method}")
         
         if verbose:
             print(f"  Hierarchical initializations: {hierarchical_count}")
-        
+            if cousin_count > 0:
+                print(f"    - Cousin-based (ATC): {cousin_count}")
+            if parent_count > 0:
+                print(f"    - Parent-based: {parent_count}")
+
         # Add hierarchical count to stats
         stats['hierarchical_init'] = hierarchical_count
+        stats['cousin_init'] = cousin_count
+        stats['parent_init'] = parent_count
     
     # Mark embeddings as pre-loaded to prevent re-initialization
     if hasattr(model, 'bert') and hasattr(model.bert, 'embeddings'):

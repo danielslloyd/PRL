@@ -21,7 +21,7 @@ from exmed_bert.data.encoding import (
     EndpointDict,
     SexDict,
     StateDict,
-    rxcui_to_atc4,
+    rxcui_to_atc5,
 )
 from exmed_bert.utils.sequence_prep import (
     create_masked_lm_predictions,
@@ -299,7 +299,7 @@ class Patient(object):
             ]
             drugs_at_time = [drugs[idx] for idx in drug_index]
             if not converted_codes and convert_rxcui_to_atc and len(drugs_at_time) > 0:
-                drugs_at_time = rxcui_to_atc4(
+                drugs_at_time = rxcui_to_atc5(
                     drugs_at_time, rx_to_atc_map=code_embed.rx_atc_map  # type: ignore
                 )
 
