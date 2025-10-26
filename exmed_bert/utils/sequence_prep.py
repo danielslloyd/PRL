@@ -208,13 +208,14 @@ def create_mlm_mask(
     return masked_lm_label
 
 
-def position_idx(visit_length: List[int], max_length: int) -> List[int]:
+def position_idx(visit_length: List[int], max_length: int, max_position_embeddings: int = 512) -> List[int]:
     """Generate position index
 
 
     Args:
         visit_length (List[int]): List with number of codes per visit
         max_length (int): maximum sequence length
+        max_position_embeddings (int): maximum position embeddings (default: 512)
 
     Returns:
         List[in]: Vector representation for positions
@@ -223,7 +224,9 @@ def position_idx(visit_length: List[int], max_length: int) -> List[int]:
     flag = 1
 
     for visit in visit_length:
-        pos.extend([flag] * visit)
+        # Cap position ID to max_position_embeddings - 1 (reserve 0 for padding)
+        capped_flag = min(flag, max_position_embeddings - 1)
+        pos.extend([capped_flag] * visit)
         flag += 1
 
     pos.extend([0] * (max_length - sum(visit_length)))

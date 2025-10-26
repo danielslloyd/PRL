@@ -1,0 +1,6 @@
+
+# conda environments:
+#
+base                   C:\ProgramData\miniconda3
+exmed-bert           * C:\Users\danie\.conda\envs\exmed-bert
+

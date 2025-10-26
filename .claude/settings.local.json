@@ -12,7 +12,13 @@
       "Bash(source:*)",
       "Bash(\"/c/Users/U064928/AppData/Local/anaconda3/Scripts/conda.exe\" env create -f environment.yaml)",
       "Bash(\"/c/Users/U064928/AppData/Local/anaconda3/Scripts/conda.exe\" activate exmed-bert)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(where:*)",
+      "Bash(py:*)",
+      "Bash(call conda activate exmed-bert)",
+      "Bash(\"C:/Users/danie/AppData/Local/anaconda3/Scripts/conda.exe\" run -n exmed-bert python scripts/convert_synthetic_to_dataset.py --input data/synthetic_patients.json --output pretrain_stuff/synthetic.pt --split all --max-length 50 --train-ratio 0.8 --seed 42)",
+      "Bash(cmd.exe /c train.bat)",
+      "Bash(./train.bat)"
     ],
     "deny": [],
     "ask": []

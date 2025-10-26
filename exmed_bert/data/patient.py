@@ -575,7 +575,9 @@ class Patient(object):
         self.attention_mask[self.unpadded_length :] = 0
 
         self.positions = position_idx(
-            visit_length=segment_information, max_length=max_length
+            visit_length=segment_information,
+            max_length=max_length,
+            max_position_embeddings=max_length  # Use max_length as max_position_embeddings
         )
 
         # prepare dictionary as model input

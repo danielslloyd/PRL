@@ -510,7 +510,8 @@ class PatientDataset(Dataset):  # type: ignore
         Returns:
             PatientDataset
         """
-        dataset = torch.load(path)
+        # PyTorch 2.6+ requires weights_only=False for custom classes
+        dataset = torch.load(path, weights_only=False)
         dataset.dataset_path = "/".join(path.split("/")[0:-1])
 
         if dataset.patients is not None:
