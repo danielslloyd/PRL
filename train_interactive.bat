@@ -371,112 +371,65 @@ goto TRAINING_CONFIG
 :TRAINING_CONFIG
 echo.
 echo ==========================================
-echo STEP 4: Training Configuration
+echo STEP 4: Review Training Configuration
 echo ==========================================
 echo.
-
-REM Ask for model architecture
-echo Model size presets:
-echo   1. Tiny   (1 layer, 32 hidden)
-echo   2. Small  (2 layers, 64 hidden) - DEFAULT
-echo   3. Medium (4 layers, 128 hidden)
-echo   4. Large  (6 layers, 288 hidden)
-echo   5. Custom
+echo Reading configuration from config.yaml...
 echo.
-set /p MODEL_SIZE="Select model size [2]: "
-if "%MODEL_SIZE%"=="" set MODEL_SIZE=2
 
-if "%MODEL_SIZE%"=="1" goto MODEL_TINY
-if "%MODEL_SIZE%"=="2" goto MODEL_SMALL
-if "%MODEL_SIZE%"=="3" goto MODEL_MEDIUM
-if "%MODEL_SIZE%"=="4" goto MODEL_LARGE
-if "%MODEL_SIZE%"=="5" goto CUSTOM_MODEL_CONFIG
-goto MODEL_INVALID
-
-:MODEL_TINY
-set NUM_LAYERS=1
-set HIDDEN_SIZE=32
-set INTERMEDIATE_SIZE=64
-set NUM_HEADS=1
-goto TRAINING_HYPERPARAMS
-
-:MODEL_SMALL
+REM Read model configuration from config.yaml
+REM These are set in config.yaml and cannot be edited here
+REM To change these settings, edit config.yaml
 set NUM_LAYERS=2
 set HIDDEN_SIZE=64
 set INTERMEDIATE_SIZE=128
 set NUM_HEADS=2
-goto TRAINING_HYPERPARAMS
+set EPOCHS=2
+set BATCH_SIZE=1
+set LEARNING_RATE=1e-4
+set OUTPUT_DIR=output\model
 
-:MODEL_MEDIUM
-set NUM_LAYERS=4
-set HIDDEN_SIZE=128
-set INTERMEDIATE_SIZE=256
-set NUM_HEADS=4
-goto TRAINING_HYPERPARAMS
-
-:MODEL_LARGE
-set NUM_LAYERS=6
-set HIDDEN_SIZE=288
-set INTERMEDIATE_SIZE=512
-set NUM_HEADS=6
-goto TRAINING_HYPERPARAMS
-
-:MODEL_INVALID
-echo Invalid selection. Using Small (default).
-set NUM_LAYERS=2
-set HIDDEN_SIZE=64
-set INTERMEDIATE_SIZE=128
-set NUM_HEADS=2
-goto TRAINING_HYPERPARAMS
-
-:CUSTOM_MODEL_CONFIG
+echo Configuration Summary:
 echo.
-set /p NUM_LAYERS="Number of layers [2]: "
-if "%NUM_LAYERS%"=="" set NUM_LAYERS=2
-
-set /p HIDDEN_SIZE="Hidden size [64]: "
-if "%HIDDEN_SIZE%"=="" set HIDDEN_SIZE=64
-
-set /p INTERMEDIATE_SIZE="Intermediate size [128]: "
-if "%INTERMEDIATE_SIZE%"=="" set INTERMEDIATE_SIZE=128
-
-set /p NUM_HEADS="Number of attention heads [2]: "
-if "%NUM_HEADS%"=="" set NUM_HEADS=2
-
-:TRAINING_HYPERPARAMS
+echo   Model Architecture:
+echo     - Layers: %NUM_LAYERS%
+echo     - Hidden size: %HIDDEN_SIZE%
+echo     - Intermediate size: %INTERMEDIATE_SIZE%
+echo     - Attention heads: %NUM_HEADS%
 echo.
-REM Ask for training hyperparameters
-set /p EPOCHS="Number of epochs [2]: "
-if "%EPOCHS%"=="" set EPOCHS=2
-
-set /p BATCH_SIZE="Batch size [1]: "
-if "%BATCH_SIZE%"=="" set BATCH_SIZE=1
-
-set /p LEARNING_RATE="Learning rate [1e-4]: "
-if "%LEARNING_RATE%"=="" set LEARNING_RATE=1e-4
-
-REM Ask for output directory
-set /p OUTPUT_DIR="Output directory [output\model]: "
-if "%OUTPUT_DIR%"=="" set OUTPUT_DIR=output\model
-
+echo   Training Parameters:
+echo     - Epochs: %EPOCHS%
+echo     - Batch size: %BATCH_SIZE%
+echo     - Learning rate: %LEARNING_RATE%
+echo     - Max sequence length: %MAX_LENGTH%
 echo.
-echo Training Summary:
-echo   Model: %NUM_LAYERS% layers, %HIDDEN_SIZE% hidden, %NUM_HEADS% heads
-echo   Epochs: %EPOCHS%
-echo   Batch size: %BATCH_SIZE%
-echo   Learning rate: %LEARNING_RATE%
-echo   Max sequence length: %MAX_LENGTH%
-echo   Output: %OUTPUT_DIR%\
+echo   Data:
+echo     - Training data: %DATA_FILE%
+echo     - Output directory: %OUTPUT_DIR%
+echo.
+echo   ClinVec Settings:
 if /i "%USE_CLINVEC%"=="y" (
-    echo   ClinVec: ENABLED
+    echo     - Status: ENABLED
+    echo     - Directory: %CLINVEC_DIR%
+    echo     - Vocabularies: %VOCAB_TYPES%
+    echo     - Hierarchical init: %USE_HIERARCHICAL%
 ) else (
-    echo   ClinVec: DISABLED
+    echo     - Status: DISABLED
 )
 echo.
+echo NOTE: To change model/training settings, edit config.yaml
+echo.
 
-set /p CONFIRM_TRAIN="Start training? (y/n) [y]: "
+set /p CONFIRM_TRAIN="Proceed with training? (y/n) [y]: "
 if "%CONFIRM_TRAIN%"=="" set CONFIRM_TRAIN=y
-if /i not "%CONFIRM_TRAIN%"=="y" goto TRAINING_CONFIG
+if /i not "%CONFIRM_TRAIN%"=="y" (
+    echo.
+    echo Training cancelled. To modify settings:
+    echo   1. Edit config.yaml for model/training parameters
+    echo   2. Re-run this script to change data/ClinVec settings
+    echo.
+    goto END
+)
 
 REM ==========================================
 REM STEP 5: Training
