@@ -115,7 +115,7 @@ python scripts/pretrain-exmed-bert-clinvec.py \
 
 ## ClinVec Pre-trained Embeddings
 
-Download from Harvard Dataverse: https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/Z6H1A8
+Downloaded from Harvard Dataverse: https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/Z6H1A8
 
 ### Required Files
 
@@ -218,55 +218,6 @@ python scripts/finetune-exmed-bert.py \
     --task-data data/classification_task.csv \
     --num-labels 2
 ```
-
----
-
-## Pre-trained Model
-
-Our pre-trained model is available at https://doi.org/10.5281/zenodo.7324178
-
----
-
-## Baseline Models
-
-Compare against traditional ML:
-
-```bash
-# Random Forest
-python scripts/train-rf.py --data-dir pretrain_stuff
-
-# XGBoost
-python scripts/train-xgboost.py --data-dir pretrain_stuff
-```
-
----
-
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@article{exmed-bert-2024,
-  title={ExMed-BERT: A Transformer-Based Model Trained on Large Scale Claims Data},
-  author={},
-  journal={},
-  year={2024}
-}
-```
-
----
-
-## Support
-
-- **Documentation:** See `docs/` folder
-- **Issues:** Create a GitHub issue
-- **Questions:** See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-
----
-
-## Contact
-
-Please post a GitHub issue or write an e-mail to manuel.lentzen@scai.fraunhofer.de if you have any questions.
 
 ---
 
