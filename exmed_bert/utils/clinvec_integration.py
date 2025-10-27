@@ -279,6 +279,7 @@ class HierarchicalCodeMatcher:
     def __init__(self):
         self.icd10_pattern = re.compile(r'^[A-Z]\d{2}\.?\d*$')
         self.icd9_pattern = re.compile(r'^\d{3}\.?\d*$')
+        self.atc5_pattern = re.compile(r'^[A-Z]\d{2}[A-Z]{2}\d{2}$')
     
     def is_icd10_code(self, code: str) -> bool:
         """Check if code follows ICD-10 format"""
@@ -287,20 +288,28 @@ class HierarchicalCodeMatcher:
     def is_icd9_code(self, code: str) -> bool:
         """Check if code follows ICD-9 format"""
         return bool(self.icd9_pattern.match(code))
-    
+
+    def is_atc5_code(self, code: str) -> bool:
+        """Check if code follows ATC5 format (7 characters: A12BC34)"""
+        return bool(self.atc5_pattern.match(code))
+
     def get_code_hierarchy(self, code: str) -> List[str]:
         """
         Get hierarchical variants of a code, from most specific to most general
-        
-        Example: E11.65 -> ['E11.65', 'E11.6', 'E11']
+
+        Examples:
+        - ICD-10: E11.65 -> ['E11.65', 'E11.6', 'E11']
+        - ATC5: N02BE01 -> ['N02BE01', 'N02BE', 'N02B', 'N02', 'N']
         """
         hierarchy = [code]
-        
+
         if self.is_icd10_code(code):
             hierarchy.extend(self._get_icd10_hierarchy(code))
         elif self.is_icd9_code(code):
             hierarchy.extend(self._get_icd9_hierarchy(code))
-        
+        elif self.is_atc5_code(code):
+            hierarchy.extend(self._get_atc5_hierarchy(code))
+
         return hierarchy
     
     def _get_icd10_hierarchy(self, code: str) -> List[str]:
@@ -326,23 +335,55 @@ class HierarchicalCodeMatcher:
     def _get_icd9_hierarchy(self, code: str) -> List[str]:
         """Generate ICD-9 hierarchy: 250.01 -> 250.0 -> 250"""
         hierarchy = []
-        
-        # Remove decimal if present  
+
+        # Remove decimal if present
         clean_code = code.replace('.', '')
-        
+
         # 25001 -> 2500, 250
         for i in range(len(clean_code) - 1, 2, -1):  # Stop at 3 chars
             parent = clean_code[:i]
-            
+
             # Add decimal back for 4+ character codes
             if len(parent) > 3:
                 parent = parent[:3] + '.' + parent[3:]
-            
+
             if parent != code and parent not in hierarchy:
                 hierarchy.append(parent)
-        
+
         return hierarchy
-    
+
+    def _get_atc5_hierarchy(self, code: str) -> List[str]:
+        """
+        Generate ATC5 hierarchy from specific to general
+
+        ATC5 structure (7 chars): A12BC34
+        - Level 1 (1 char): Anatomical main group (A)
+        - Level 2 (3 chars): Therapeutic subgroup (A12)
+        - Level 3 (4 chars): Pharmacological subgroup (A12B)
+        - Level 4 (5 chars): Chemical subgroup (A12BC)
+        - Level 5 (7 chars): Chemical substance (A12BC34)
+
+        Example: N02BE01 -> ['N02BE', 'N02B', 'N02', 'N']
+        """
+        hierarchy = []
+
+        if len(code) != 7:
+            return hierarchy
+
+        # Level 4: Chemical subgroup (5 chars) - e.g., N02BE
+        hierarchy.append(code[:5])
+
+        # Level 3: Pharmacological subgroup (4 chars) - e.g., N02B
+        hierarchy.append(code[:4])
+
+        # Level 2: Therapeutic subgroup (3 chars) - e.g., N02
+        hierarchy.append(code[:3])
+
+        # Level 1: Anatomical main group (1 char) - e.g., N
+        hierarchy.append(code[0])
+
+        return hierarchy
+
     def find_best_parent_embedding(
         self, 
         novel_code: str, 
@@ -362,20 +403,36 @@ class HierarchicalCodeMatcher:
         
         # Try each level of hierarchy from most specific to most general
         for parent_code in hierarchy[1:]:  # Skip the original code
-            
+
             # Try different format variations of parent code
             parent_variations = [
                 parent_code,
                 parent_code.replace('.', ''),
-                f"ICD_{parent_code}",
-                f"ICD10CM_{parent_code}" if self.is_icd10_code(parent_code) else f"ICD9CM_{parent_code}"
             ]
-            
+
+            # Add code-type-specific prefixes
+            if self.is_icd10_code(parent_code):
+                parent_variations.extend([
+                    f"ICD_{parent_code}",
+                    f"ICD10CM_{parent_code}"
+                ])
+            elif self.is_icd9_code(parent_code):
+                parent_variations.extend([
+                    f"ICD_{parent_code}",
+                    f"ICD9CM_{parent_code}"
+                ])
+            elif self.is_atc5_code(parent_code):
+                parent_variations.extend([
+                    f"ATC_{parent_code}",
+                    f"ATC5_{parent_code}",
+                    f"RXNORM_{parent_code}"  # Some datasets map ATC to RxNorm
+                ])
+
             for variation in parent_variations:
                 if variation in available_embeddings:
                     logger.info(f"Found parent embedding: {novel_code} -> {variation}")
                     return available_embeddings[variation]
-        
+
         logger.debug(f"No parent embedding found for {novel_code}")
         return None
 
