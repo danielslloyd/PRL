@@ -20,7 +20,6 @@ def test_atc5_detection():
         ("A10BA02", True, "Valid ATC5 code"),
         ("C09AA05", True, "Valid ATC5 code"),
         ("E11.65", False, "ICD-10 code"),
-        ("250.01", False, "ICD-9 code"),
         ("N02BE", False, "ATC Level 4 (too short)"),
         ("N02BE001", False, "Invalid (too long)"),
     ]
@@ -139,7 +138,6 @@ def test_mixed_code_types():
     test_cases = [
         ("N02BE01", "ATC5"),
         ("E11.65", "ICD-10"),
-        ("250.01", "ICD-9"),
         ("UNKNOWN", "Unknown"),
     ]
 
@@ -151,12 +149,9 @@ def test_mixed_code_types():
             result = matcher.is_atc5_code(code)
         elif expected_type == "ICD-10":
             result = matcher.is_icd10_code(code)
-        elif expected_type == "ICD-9":
-            result = matcher.is_icd9_code(code)
         else:
             result = not (matcher.is_atc5_code(code) or
-                         matcher.is_icd10_code(code) or
-                         matcher.is_icd9_code(code))
+                         matcher.is_icd10_code(code))
 
         status = "[PASS]" if result else "[FAIL]"
 

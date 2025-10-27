@@ -39,9 +39,9 @@ class ClinVecLoader:
     def load_embeddings_by_vocab(self, vocab_type: str) -> Dict[str, torch.Tensor]:
         """
         Load embeddings for a specific vocabulary type
-        
+
         Args:
-            vocab_type: Type of vocabulary (icd9cm, icd10cm, phecode, atc, rxnorm, etc.)
+            vocab_type: Type of vocabulary (icd10cm, phecode, atc, rxnorm, etc.)
             
         Returns:
             Dictionary mapping original codes to embedding tensors
@@ -278,16 +278,11 @@ class HierarchicalCodeMatcher:
     
     def __init__(self):
         self.icd10_pattern = re.compile(r'^[A-Z]\d{2}\.?\d*$')
-        self.icd9_pattern = re.compile(r'^\d{3}\.?\d*$')
         self.atc5_pattern = re.compile(r'^[A-Z]\d{2}[A-Z]{2}\d{2}$')
     
     def is_icd10_code(self, code: str) -> bool:
         """Check if code follows ICD-10 format"""
         return bool(self.icd10_pattern.match(code))
-    
-    def is_icd9_code(self, code: str) -> bool:
-        """Check if code follows ICD-9 format"""
-        return bool(self.icd9_pattern.match(code))
 
     def is_atc5_code(self, code: str) -> bool:
         """Check if code follows ATC5 format (7 characters: A12BC34)"""
@@ -305,8 +300,6 @@ class HierarchicalCodeMatcher:
 
         if self.is_icd10_code(code):
             hierarchy.extend(self._get_icd10_hierarchy(code))
-        elif self.is_icd9_code(code):
-            hierarchy.extend(self._get_icd9_hierarchy(code))
         elif self.is_atc5_code(code):
             hierarchy.extend(self._get_atc5_hierarchy(code))
 
@@ -330,26 +323,6 @@ class HierarchicalCodeMatcher:
             if parent != code and parent not in hierarchy:
                 hierarchy.append(parent)
         
-        return hierarchy
-    
-    def _get_icd9_hierarchy(self, code: str) -> List[str]:
-        """Generate ICD-9 hierarchy: 250.01 -> 250.0 -> 250"""
-        hierarchy = []
-
-        # Remove decimal if present
-        clean_code = code.replace('.', '')
-
-        # 25001 -> 2500, 250
-        for i in range(len(clean_code) - 1, 2, -1):  # Stop at 3 chars
-            parent = clean_code[:i]
-
-            # Add decimal back for 4+ character codes
-            if len(parent) > 3:
-                parent = parent[:3] + '.' + parent[3:]
-
-            if parent != code and parent not in hierarchy:
-                hierarchy.append(parent)
-
         return hierarchy
 
     def _get_atc5_hierarchy(self, code: str) -> List[str]:
@@ -416,11 +389,6 @@ class HierarchicalCodeMatcher:
                     f"ICD_{parent_code}",
                     f"ICD10CM_{parent_code}"
                 ])
-            elif self.is_icd9_code(parent_code):
-                parent_variations.extend([
-                    f"ICD_{parent_code}",
-                    f"ICD9CM_{parent_code}"
-                ])
             elif self.is_atc5_code(parent_code):
                 parent_variations.extend([
                     f"ATC_{parent_code}",
@@ -441,7 +409,7 @@ def integrate_clinvec_with_exmedbert(
     model,
     code_dict,
     clinvec_dir: str,
-    vocab_types: List[str] = ["icd9cm", "icd10cm", "phecode"],
+    vocab_types: List[str] = ["icd10cm", "atc"],
     resize_if_needed: bool = True,
     resize_method: str = "auto",
     use_hierarchical_init: bool = True,
@@ -748,7 +716,7 @@ def load_for_exmedbert_pretraining(model, code_dict, clinvec_dir: str):
         model=model,
         code_dict=code_dict,
         clinvec_dir=clinvec_dir,
-        vocab_types=["icd9cm", "icd10cm", "phecode", "rxnorm", "atc"],
+        vocab_types=["icd10cm", "atc"],
         resize_if_needed=True,
         verbose=True
     )
@@ -793,7 +761,7 @@ def test_hierarchical_matching():
     for code in test_cases:
         hierarchy = matcher.get_code_hierarchy(code)
         print(f"\n{code}:")
-        print(f"  Type: {'ICD-10' if matcher.is_icd10_code(code) else 'ICD-9' if matcher.is_icd9_code(code) else 'Other'}")
+        print(f"  Type: {'ICD-10' if matcher.is_icd10_code(code) else 'ATC5' if matcher.is_atc5_code(code) else 'Other'}")
         print(f"  Hierarchy: {' → '.join(hierarchy)}")
     
     # Test parent finding with mock embeddings

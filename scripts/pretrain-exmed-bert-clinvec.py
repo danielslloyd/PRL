@@ -51,7 +51,7 @@ def pretrain(
     # ClinVec integration parameters
     use_clinvec: bool = False,
     clinvec_dir: Optional[Path] = None,
-    vocab_types: str = Option("icd9cm,icd10cm,phecode", help="Comma-separated list of vocabulary types"),
+    vocab_types: str = Option("icd10cm,atc", help="Comma-separated list of vocabulary types"),
     use_hierarchical_init: bool = True,
     resize_if_needed: bool = True,
     resize_method: str = Option("auto", help="Method for resizing embeddings: auto, truncate, pca, learned_projection, pad_smart, pad_random"),

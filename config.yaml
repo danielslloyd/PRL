@@ -29,8 +29,8 @@ data_prep_params_example:
 # 3. Update clinvec_dir below to the actual path
 clinvec_params:
   use_clinvec: true  # Set to true after downloading ClinVec
-  clinvec_dir: "../ClinVec"  # Change to your actual ClinVec directory path
-  vocab_types: ["icd10cm"]  # Focus on ICD-10 since training data uses ICD-10 codes
+  clinvec_dir: "ClinVec"  # ClinVec directory in project root
+  vocab_types: ["icd10cm", "atc"]  # ICD-10 and ATC drug codes
   use_hierarchical_init: true
   resize_if_needed: true
   resize_method: "auto"  # auto, truncate, pca, learned_projection, pad_smart, pad_random
