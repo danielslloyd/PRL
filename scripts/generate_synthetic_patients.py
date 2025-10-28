@@ -1,10 +1,11 @@
 """
-Generate synthetic patient data with realistic ICD-10 and ATC5 codes.
+Generate synthetic patient data with realistic ICD-10, ATC5, and CPT codes.
 
 This script generates N patients with:
 - Most common ICD-10 diagnosis codes
 - Most common ATC5 drug codes
-- 1% novel codes that have hierarchical cousins
+- Most common CPT procedure codes
+- 1% novel codes that have hierarchical cousins (ICD-10/ATC5) or category-based (CPT)
 - US population-based demographics (age, sex, state)
 - Dates of care within the last 5 years
 """
@@ -129,6 +130,60 @@ COMMON_ATC5_CODES = [
     "A06AD11",  # Lactulose
 ]
 
+# Most common CPT procedure codes (based on US healthcare utilization)
+COMMON_CPT_CODES = [
+    "99213",    # Office visit, established patient, 15 min
+    "99214",    # Office visit, established patient, 25 min
+    "99215",    # Office visit, established patient, 40 min
+    "99203",    # Office visit, new patient, 30 min
+    "99204",    # Office visit, new patient, 45 min
+    "99232",    # Hospital inpatient care, 25 min
+    "99233",    # Hospital inpatient care, 35 min
+    "93000",    # Electrocardiogram (ECG/EKG), complete
+    "36415",    # Collection of venous blood
+    "80053",    # Comprehensive metabolic panel
+    "85025",    # Complete blood count (CBC) with differential
+    "80061",    # Lipid panel
+    "84443",    # Thyroid stimulating hormone (TSH)
+    "82947",    # Glucose, blood test
+    "83036",    # Hemoglobin A1C
+    "71046",    # Chest X-ray, 2 views
+    "73610",    # Radiologic examination, ankle, complete
+    "73630",    # Radiologic examination, foot, complete
+    "70450",    # CT scan, head/brain without contrast
+    "72148",    # MRI, lumbar spine without contrast
+    "96372",    # Therapeutic/diagnostic injection
+    "90471",    # Immunization administration, first vaccine
+    "90658",    # Influenza virus vaccine
+    "90707",    # MMR vaccine
+    "76856",    # Ultrasound, pelvic
+    "88305",    # Tissue examination by pathologist
+    "45378",    # Colonoscopy, diagnostic
+    "43239",    # Upper GI endoscopy
+    "97110",    # Physical therapy, therapeutic exercise
+    "97112",    # Physical therapy, neuromuscular re-education
+    "97140",    # Manual therapy techniques
+    "90834",    # Psychotherapy, 45 minutes
+    "90837",    # Psychotherapy, 60 minutes
+    "99282",    # Emergency dept visit, low complexity
+    "99283",    # Emergency dept visit, moderate complexity
+    "99284",    # Emergency dept visit, high complexity
+    "99291",    # Critical care, first hour
+    "96127",    # Brief emotional/behavioral assessment
+    "95810",    # Sleep study (polysomnography)
+    "43235",    # Upper GI endoscopy, diagnostic
+    "11042",    # Debridement, skin, subcutaneous tissue
+    "11200",    # Removal of skin tags, first 15
+    "17000",    # Destruction of premalignant lesions
+    "20610",    # Arthrocentesis (joint fluid removal)
+    "29881",    # Arthroscopy, knee, surgical
+    "64483",    # Epidural steroid injection, lumbar
+    "64493",    # Paravertebral facet joint injection
+    "92004",    # Ophthalmological exam, comprehensive, new patient
+    "92014",    # Ophthalmological exam, comprehensive, established patient
+    "92081",    # Visual field examination
+]
+
 # US states with approximate population weights (2020 Census)
 US_STATES_WITH_WEIGHTS = [
     ("CA", 0.119),  # California
@@ -187,6 +242,7 @@ US_STATES_WITH_WEIGHTS = [
 # Cache for generated novel codes to ensure consistency
 _NOVEL_ICD10_CACHE: Set[str] = set()
 _NOVEL_ATC5_CACHE: Set[str] = set()
+_NOVEL_CPT_CACHE: Set[str] = set()
 
 
 def parse_icd10_hierarchy(icd_code: str) -> Tuple[str, str, str]:
@@ -333,6 +389,46 @@ def generate_novel_atc5(parent_code: str) -> str:
     return f"NOVEL_{parent_code}"
 
 
+def generate_novel_cpt(parent_code: str) -> str:
+    """
+    Generate a novel CPT code based on parent_code.
+
+    CPT codes are 5-digit numbers. Unlike ICD-10 and ATC5, CPT codes don't
+    have a strict hierarchical structure, but codes in the same range often
+    represent similar procedures. We generate novel codes by staying in the
+    same range (same first 2-3 digits).
+
+    Args:
+        parent_code: Existing CPT code to use as template
+
+    Returns:
+        Novel CPT code
+    """
+    if not parent_code.isdigit() or len(parent_code) != 5:
+        # Invalid format, return with NOVEL prefix
+        return f"NOVEL_{parent_code}"
+
+    # Keep same category (first 2 digits) for similar procedures
+    category = parent_code[:2]
+
+    # Generate new code in same category
+    attempts = 0
+    while attempts < 100:
+        # Generate last 3 digits randomly
+        new_suffix = f"{random.randint(0, 999):03d}"
+        novel_code = f"{category}{new_suffix}"
+
+        # Check if this novel code already exists or was already generated
+        if novel_code not in COMMON_CPT_CODES and novel_code not in _NOVEL_CPT_CACHE:
+            _NOVEL_CPT_CACHE.add(novel_code)
+            return novel_code
+
+        attempts += 1
+
+    # Fallback: add NOVEL prefix
+    return f"NOVEL_{parent_code}"
+
+
 def generate_age_distribution() -> int:
     """
     Generate age following US population distribution.
@@ -417,6 +513,7 @@ def generate_patient_events(patient_id: int, novel_code_prob: float = 0.01) -> d
     # Most patients have 5-50 events over 5 years
     n_diagnoses = random.randint(3, 30)
     n_prescriptions = random.randint(2, 40)
+    n_procedures = random.randint(1, 20)  # Procedures are less frequent
 
     # Generate medical events
     # Use power law distribution - some codes more common than others
@@ -432,6 +529,12 @@ def generate_patient_events(patient_id: int, novel_code_prob: float = 0.01) -> d
         k=n_prescriptions
     )
 
+    procedures = random.choices(
+        COMMON_CPT_CODES,
+        weights=[1/(i+1)**0.5 for i in range(len(COMMON_CPT_CODES))],
+        k=n_procedures
+    )
+
     # Inject novel codes (1% of the time)
     # For diagnoses
     for i in range(len(diagnoses)):
@@ -445,16 +548,25 @@ def generate_patient_events(patient_id: int, novel_code_prob: float = 0.01) -> d
             parent_code = drugs[i]
             drugs[i] = generate_novel_atc5(parent_code)
 
+    # For procedures
+    for i in range(len(procedures)):
+        if random.random() < novel_code_prob:
+            parent_code = procedures[i]
+            procedures[i] = generate_novel_cpt(parent_code)
+
     # Generate dates
     diagnosis_dates = generate_dates_last_5_years(n_diagnoses)
     prescription_dates = generate_dates_last_5_years(n_prescriptions)
+    procedure_dates = generate_dates_last_5_years(n_procedures)
 
     return {
         "patient_id": patient_id,
         "diagnoses": diagnoses,
         "drugs": drugs,
+        "procedures": procedures,
         "diagnosis_dates": [d.strftime("%Y%m%d") for d in diagnosis_dates],
         "prescription_dates": [d.strftime("%Y%m%d") for d in prescription_dates],
+        "procedure_dates": [d.strftime("%Y%m%d") for d in procedure_dates],
         "birth_year": birth_year,
         "sex": sex,
         "patient_state": patient_state,
@@ -501,27 +613,35 @@ def generate_synthetic_patients(
     # Print statistics
     total_diagnoses = sum(len(p['diagnoses']) for p in patients)
     total_drugs = sum(len(p['drugs']) for p in patients)
+    total_procedures = sum(len(p['procedures']) for p in patients)
 
     # Count novel codes
     all_diagnoses = [dx for p in patients for dx in p['diagnoses']]
     all_drugs = [drug for p in patients for drug in p['drugs']]
+    all_procedures = [proc for p in patients for proc in p['procedures']]
 
     novel_diagnoses = len(_NOVEL_ICD10_CACHE)
     novel_drugs = len(_NOVEL_ATC5_CACHE)
+    novel_procedures = len(_NOVEL_CPT_CACHE)
     novel_diagnoses_count = sum(1 for dx in all_diagnoses if dx in _NOVEL_ICD10_CACHE)
     novel_drugs_count = sum(1 for drug in all_drugs if drug in _NOVEL_ATC5_CACHE)
+    novel_procedures_count = sum(1 for proc in all_procedures if proc in _NOVEL_CPT_CACHE)
 
     print("\nDataset Statistics:")
     print(f"  Total diagnoses: {total_diagnoses}")
     print(f"  Total prescriptions: {total_drugs}")
+    print(f"  Total procedures: {total_procedures}")
     print(f"  Avg diagnoses per patient: {np.mean([len(p['diagnoses']) for p in patients]):.1f}")
     print(f"  Avg prescriptions per patient: {np.mean([len(p['drugs']) for p in patients]):.1f}")
+    print(f"  Avg procedures per patient: {np.mean([len(p['procedures']) for p in patients]):.1f}")
 
     print(f"\nNovel Codes:")
     print(f"  Unique novel ICD-10 codes generated: {novel_diagnoses}")
     print(f"  Total novel ICD-10 code instances: {novel_diagnoses_count} ({100*novel_diagnoses_count/total_diagnoses:.2f}%)")
     print(f"  Unique novel ATC5 codes generated: {novel_drugs}")
     print(f"  Total novel ATC5 code instances: {novel_drugs_count} ({100*novel_drugs_count/total_drugs:.2f}%)")
+    print(f"  Unique novel CPT codes generated: {novel_procedures}")
+    print(f"  Total novel CPT code instances: {novel_procedures_count} ({100*novel_procedures_count/total_procedures:.2f}%)")
 
     # Show examples of novel codes
     if novel_diagnoses > 0:
@@ -531,6 +651,10 @@ def generate_synthetic_patients(
     if novel_drugs > 0:
         print(f"\n  Example novel ATC5 codes (hierarchical cousins):")
         for code in sorted(list(_NOVEL_ATC5_CACHE))[:5]:
+            print(f"    {code}")
+    if novel_procedures > 0:
+        print(f"\n  Example novel CPT codes:")
+        for code in sorted(list(_NOVEL_CPT_CACHE))[:5]:
             print(f"    {code}")
 
     # Sex distribution

@@ -47,21 +47,25 @@ def create_vocabulary_dicts(patients_data: List[dict]) -> tuple:
     # Collect all unique codes
     all_icd_codes = set()
     all_atc_codes = set()
+    all_cpt_codes = set()
     all_states = set()
 
     for patient in patients_data:
         all_icd_codes.update(patient['diagnoses'])
         all_atc_codes.update(patient['drugs'])
+        all_cpt_codes.update(patient.get('procedures', []))  # Use get() for backward compatibility
         all_states.add(patient['patient_state'])
 
     logger.info(f"  Found {len(all_icd_codes)} unique ICD-10 codes")
     logger.info(f"  Found {len(all_atc_codes)} unique ATC5 codes")
+    logger.info(f"  Found {len(all_cpt_codes)} unique CPT codes")
     logger.info(f"  Found {len(all_states)} unique states")
 
     # Create CodeDict
     code_dict = CodeDict(
         atc_codes=sorted(list(all_atc_codes)),
         icd_codes=sorted(list(all_icd_codes)),
+        cpt_codes=sorted(list(all_cpt_codes)),  # Add CPT codes
         rx_to_atc_map=None  # Already using ATC codes
     )
 
@@ -124,14 +128,20 @@ def convert_json_to_patients(
                 datetime.strptime(d, "%Y%m%d").date()
                 for d in patient_data['prescription_dates']
             ]
+            procedure_dates = [
+                datetime.strptime(d, "%Y%m%d").date()
+                for d in patient_data.get('procedure_dates', [])  # Use get() for backward compatibility
+            ]
 
             # Create Patient object
             patient = Patient(
                 patient_id=patient_data['patient_id'],
                 diagnoses=patient_data['diagnoses'],
                 drugs=patient_data['drugs'],
+                procedures=patient_data.get('procedures', []),  # Use get() for backward compatibility
                 diagnosis_dates=diagnosis_dates,
                 prescription_dates=prescription_dates,
+                procedure_dates=procedure_dates,
                 birth_year=patient_data['birth_year'],
                 sex=patient_data['sex'],
                 patient_state=patient_data['patient_state'],

@@ -386,25 +386,31 @@ class EmbedDict(object):
 
 
 class CodeDict(EmbedDict):
-    """Dictionary for drug and diagnosis codes"""
+    """Dictionary for drug, diagnosis, and procedure codes"""
 
     def __init__(
         self,
         atc_codes: List[str],
         icd_codes: List[str],
+        cpt_codes: Optional[List[str]] = None,
         rx_to_atc_map: Optional[Dict[str, str]] = None,
     ) -> None:
-        """Initializes a code dict for ATC and ICD codes
+        """Initializes a code dict for ATC, ICD, and CPT codes
 
         Args:
             atc_codes (List[str]): List of ATC codes
             icd_codes (List[str]): List of ICD codes
+            cpt_codes (List[str], optional): List of CPT procedure codes. Defaults to None.
             rx_to_atc_map (Dict[str, str], optional): Mapping from rxcuis to atc. Defaults to None.
         """
         super().__init__(defaults=DICT_DEFAULTS)
-        assert (
-            len(set(atc_codes).intersection(set(icd_codes))) == 0
-        ), "Codes are not unique"
+
+        # Ensure codes are unique across all code types
+        all_codes = set(atc_codes) | set(icd_codes)
+        if cpt_codes:
+            all_codes |= set(cpt_codes)
+        assert len(all_codes) == len(atc_codes) + len(icd_codes) + (len(cpt_codes) if cpt_codes else 0), \
+            "Codes are not unique across ATC, ICD, and CPT"
 
         if atc_codes is not None:
             self._add_labels_to_dict(atc_codes, entity="atc")
@@ -412,8 +418,12 @@ class CodeDict(EmbedDict):
         if icd_codes is not None:
             self._add_labels_to_dict(icd_codes, entity="icd")
 
+        if cpt_codes is not None:
+            self._add_labels_to_dict(cpt_codes, entity="cpt")
+
         self.atc_codes = frozenset(atc_codes)
         self.icd_codes = frozenset(icd_codes)
+        self.cpt_codes = frozenset(cpt_codes) if cpt_codes else frozenset()
         self.rx_atc_map = rx_to_atc_map
 
     def __eq__(self, other: "CodeDict") -> bool:

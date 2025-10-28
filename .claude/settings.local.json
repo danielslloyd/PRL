@@ -21,7 +21,8 @@
       "Bash(./train.bat)",
       "Bash(./run_test.bat)",
       "Bash(awk:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(\"/c/Users/U064928/AppData/Local/anaconda3/Scripts/conda.exe\" run -n exmed-bert python scripts/generate_synthetic_patients.py -n 10 --output data/test_cpt_patients.json --seed 42)"
     ],
     "deny": [],
     "ask": []

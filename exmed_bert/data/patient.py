@@ -49,8 +49,10 @@ class Patient(object):
     patient_id: int
     diagnoses: List[str]
     drugs: List[str]
+    procedures: List[str]  # CPT procedure codes
     diagnosis_dates: List[date]
     prescription_dates: List[date]
+    procedure_dates: List[date]  # Dates for procedures
     birth_year: int
     sex: str
     patient_state: str
@@ -137,8 +139,15 @@ class Patient(object):
             logger.debug(f"Drugs: {len(self.drugs)}, {len(self.prescription_dates)}")
             raise InputException("Dates and codes do not match. Check input data.")
 
-        # Test if patient has enough observations for diagnoses and substances
-        combined_length = len(self.diagnosis_dates) + len(self.prescription_dates)
+        # Validate procedures if present
+        if len(self.procedures) != len(self.procedure_dates):
+            logger.debug(
+                f"Procedures: {len(self.procedures)}, {len(self.procedure_dates)}"
+            )
+            raise InputException("Procedure dates and codes do not match. Check input data.")
+
+        # Test if patient has enough observations for diagnoses, substances, and procedures
+        combined_length = len(self.diagnosis_dates) + len(self.prescription_dates) + len(self.procedure_dates)
         if combined_length < self.min_observations:
             logger.debug(
                 f"""
@@ -241,44 +250,62 @@ class Patient(object):
         drop_duplicates: bool = True,
         converted_codes: bool = False,
         convert_rxcui_to_atc: bool = True,
+        procedure_dates: List[date] = None,
+        procedures: List[str] = None,
     ) -> Tuple[List[str], List[datetime]]:
-        """Combine atc and icd codes to one sequence
+        """Combine ICD, ATC, and CPT codes to one sequence
 
         Args:
-            diagnosis_dates (List[date]): [description]
-            diagnoses (List[str]): [description]
-            prescription_dates (List[date]): [description]
-            drugs (List[str]): [description]
-            code_embed (CodeDict): [description]
-            drop_duplicates (bool, optional): [description]. Defaults to True.
-            converted_codes (bool, optional): [description]. Defaults to False.
+            diagnosis_dates (List[date]): Dates of ICD diagnosis codes
+            diagnoses (List[str]): ICD diagnosis codes
+            prescription_dates (List[date]): Dates of prescription/drug codes
+            drugs (List[str]): Drug codes (RxNorm or ATC)
+            code_embed (CodeDict): Code vocabulary dictionary
+            drop_duplicates (bool, optional): Remove duplicate codes at same time point. Defaults to True.
+            converted_codes (bool, optional): Whether codes are already converted. Defaults to False.
             convert_rxcui_to_atc (bool, optional): Converts rxnorm ids to atc ids. Defaults to True.
+            procedure_dates (List[date], optional): Dates of CPT procedure codes. Defaults to None.
+            procedures (List[str], optional): CPT procedure codes. Defaults to None.
 
         Raises:
             PatientNotValid: Validation error
 
         Returns:
-            Tuple[List[int], List[datetime]]: List of codes, List of time points
+            Tuple[List[str], List[datetime]]: List of codes, List of time points
         """
 
-        if prescription_dates is None and diagnosis_dates is None:
-            logger.error("Both date sequences are none.")
+        if prescription_dates is None and diagnosis_dates is None and procedure_dates is None:
+            logger.error("All date sequences are none.")
             raise PatientNotValid
 
         codes = []
         time_points = []
+
+        # Handle None values for optional procedure dates
+        if procedure_dates is None:
+            procedure_dates = []
+        if procedures is None:
+            procedures = []
+
         try:
-            unique_time_points = sorted(
-                set(
-                    np.concatenate(
-                        (np.array(diagnosis_dates), np.array(prescription_dates))
-                    )
-                )
-            )
+            # Combine all date sequences to find unique time points
+            date_arrays = []
+            if diagnosis_dates:
+                date_arrays.append(np.array(diagnosis_dates))
+            if prescription_dates:
+                date_arrays.append(np.array(prescription_dates))
+            if procedure_dates:
+                date_arrays.append(np.array(procedure_dates))
+
+            if date_arrays:
+                unique_time_points = sorted(set(np.concatenate(date_arrays)))
+            else:
+                unique_time_points = []
         except:
             logger.error("Unique time points could not be found")
-            logger.error(diagnosis_dates)
-            logger.error(prescription_dates)
+            logger.error(f"Diagnosis dates: {diagnosis_dates}")
+            logger.error(f"Prescription dates: {prescription_dates}")
+            logger.error(f"Procedure dates: {procedure_dates}")
             raise PatientNotValid
 
         for time_point in unique_time_points:
@@ -303,11 +330,21 @@ class Patient(object):
                     drugs_at_time, rx_to_atc_map=code_embed.rx_atc_map  # type: ignore
                 )
 
+            # processing of procedures (CPT codes)
+            procedure_index = [
+                i
+                for i, procedure_date in enumerate(procedure_dates)
+                if procedure_date == time_point
+            ]
+            procedures_at_time = [procedures[idx] for idx in procedure_index]
+            # CPT codes are used directly without conversion
+
             if drop_duplicates:
                 diagnoses_at_time = list(set(diagnoses_at_time))
                 drugs_at_time = list(set(drugs_at_time))
+                procedures_at_time = list(set(procedures_at_time))
 
-            codes_at_time = diagnoses_at_time + drugs_at_time
+            codes_at_time = diagnoses_at_time + drugs_at_time + procedures_at_time
             random.shuffle(codes_at_time)
             codes.extend(codes_at_time)
             time_points.extend([time_point] * len(codes_at_time))
@@ -367,6 +404,8 @@ class Patient(object):
                 drop_duplicates=drop_duplicates,
                 converted_codes=converted_codes,
                 convert_rxcui_to_atc=convert_rxcui_to_atc,
+                procedure_dates=self.procedure_dates,
+                procedures=self.procedures,
             )
             unique_dates = sorted(set(self.time_points))
             self.num_visits = len(unique_dates)
@@ -1001,6 +1040,10 @@ class Patient(object):
             "drugs": self.drugs,
             "prescription_dates": [
                 x.strftime("%Y%m%d") for x in self.prescription_dates
+            ],
+            "procedures": self.procedures,
+            "procedure_dates": [
+                x.strftime("%Y%m%d") for x in self.procedure_dates
             ],
             "birth_year": self.birth_year,
             "sex": self.sex,
